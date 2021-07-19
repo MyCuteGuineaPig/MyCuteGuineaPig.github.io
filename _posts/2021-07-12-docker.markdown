@@ -14,7 +14,7 @@ tags:
 
 ## What is Docker
 
-**Docker** is the software container platform
+**Docker** is the software container platform. It can be used to replicate dependencies of prdocution machines
 
 
 **Containers** allow a developer to package up an application with all of the parts it needs such as libraries and other dependencies, and ship it all out as one package
@@ -37,7 +37,7 @@ tags:
 **Virtualization**: 
 
 - have software **Hypervisor** which is used to create and run virtual machine. 
-- On Hypervisor can create multiple virtual machine on host operating system. <span style="color:red">These virtual machine has their own operatiing system and it does not use host operating system</span>. So there can be an <span style="color:red">overhead on the host platform</span>.
+- On Hypervisor can create multiple virtual machine on host operating system. <span style="color:red">These virtual machine has their own operating system and it does not use host operating system</span>. So there can be an <span style="color:red">overhead on the host platform</span>.
 - In virtual machine, <span style="color:red">has to allocate a fixed memory and space on every machine. So there are a lot of waste of memory and space</span>
 
 **Containerization**:
@@ -98,7 +98,7 @@ sudo yum remove docker ## uninstall docker
 docker version ## Give information about docker engine( docker client and server)
 docker stats ## give the details of running containers, memory usage, input/output
 docker system df ## check the disk usage of docker. It gives all the sizes of containers
-docker system prune ## careful with this command. remove all used data. Dangling images means image which are not associated with running container
+docker system prune ## careful with this command. remove all stopped container, all network not used by listed container, and all dangling images, any dangling in the build cache. Dangling images means image which are not associated with running container
 ## IF images is running, will not be removed
 
 
@@ -142,6 +142,7 @@ docker pull ubuntu:18.04
 ## Show all the images 
 docker images
 docker images -a ## Also show default hidden images
+## Same as docker image ls -a 
 
 ## only show image id 
 docker images -q
@@ -192,6 +193,8 @@ docker images -a
 docker history ubuntu
 ```
 
+
+
 ## Docker Container
 
 **Containers** are running instances of **Docker images**
@@ -204,9 +207,9 @@ docker history ubuntu
 - Less resources are used
 - Booting of containers is very fast
 - <span style="color:red">can start, stop, kill. Remove containers easily and quickly</span>
-- <span style="color:red">Operating system resources can be shared within Docker</span>
-  - Container run on the same machine sharingthe same operatings system Kernel. This makes it faster
-
+- <span style="color:red">Operating system resources can be shared within Docker</span>. Single running process with no `init` system
+  - Container run on the same machine sharing the same operatings system Kernel. This makes it faster
+- Contains all application dependencies
 
 
 ![](/img/post/docker/5.png)
@@ -316,19 +319,30 @@ docker volume inspect myJenkins3
 
 ```shell
 mkdir test
+
 cd test
+
 touch Dockerfile
 ```
 
-**Step 2**: Add Instructions in **Dockefile**
+**Step 2**: Add Instructions in **Dockefile**: is a <span style="background-color:#FFFF00">sequence of instruction on how to create image</span>, and each layer in the image is READ-ONLY, which allow efficient to share layers between images
 
 
 - start with `FROM` to give a base image
   - If want to build empty image, use `FROM scratch`
+  - when running `docker build` will download image from registry
 - Give maintainer, it is optional, but is easy to find who is maintainer if add. Give your name and email address
 - `RUN` if want to run something
-- `CMD` if want to something from container creation, can give this `CMD`
-- <span style="background-color:#FFFF00">Difference between `RUN` and `CMD` is `RUN` get executed during the building of the image ho wever `CMD` get executed only when you created a container out of the image</span>
+- `CMD` if want to something from container creation, can give this `CMD`. Dockerfile can has only one Dockerfile 
+  - To have multiple commands, use `&&` for chain commands `CMD ["sh","-c","mkdir directory && cd directory/ && touch new.file"]`
+  - `CMD` can be overridden by specifying an argument after the image name when call `docker run ubuntu ls`, 那么将会列出`ls`, 不会像下面例子将不会打印 `Hello World...` 
+- <span style="background-color:#FFFF00">Difference between `RUN` and `CMD`
+  -  `RUN` get executed during the building of the image.  `RUN` is an image build step, the state of the container after a `RUN` command will be committed to the container image. A Dockerfile can have many RUN steps that layer on top of one another to build the image.
+  -  `CMD` get executed only when you created a container out of the image</span> `CMD`  executes by default when you launch the built image. A Dockerfile will only use the final CMD defined. The CMD can be overridden when starting a container with `docker run image other_command`. 
+- Each instruction can create a **READ-ONLY** layer which depends on previous layer
+- `ENTRYPOINT` allows you to configure a container that will run as an executable. The difference between `ENTRYPOINT` and `CMD` is <span style="background-color:#FFFF00">`ENTRYPOINT` command and parameters are not ignored</span> when Docker container runs with command line parameters. (There is a way to ignore ENTTRYPOINT, but it is unlikely that you will do it.)
+- If image doesn't specify `ENTRYPOINT` or `CMD` it will be error 
+- [WORKDIR](https://www.geeksforgeeks.org/docker-workdir-instruction/#:~:text=WORKDIR%20instruction%20is%20used%20to,the%20processing%20of%20the%20instructions.)
 
 Sample Docker File 
 
@@ -367,10 +381,22 @@ docker images
 
 docker run myimages1:1.0
 ## It will print Hello World... from my first docker image
+
+## Will remove the container after stop it if not use this container further
+docker run --rm myimages1:1.0
 ```
+
+
+[Docker RUN vs CMD vs ENTRYPOINT](https://goinbigdata.com/docker-run-vs-cmd-vs-entrypoint/)
+
+> When Docker runs a container, it runs an image inside it. This image is usually built by executing Docker instructions, which add layers on top of existing image or OS distribution. OS distribution is the initial image and every added layer creates a new image.
+
+> Final Docker image reminds an onion with OS distribution inside and a number of layers on top of it. For example, your image can be built by installing a number of deb packages and your application on top of Ubuntu 14.04 distribution.
+
 
 - [Dockerfile Reference](https://github.com/wsargent/docker-cheat-sheet#dockerfile)
 - [Dockerfile Reference](https://docs.docker.com/engine/reference/builder/)
+
 
 
 ## Docker-compose 
@@ -384,6 +410,8 @@ docker-compose help
 - use yaml files (`docker-compose.yml`) to configure application services
 - can start/stop all services with a single comand `docker-compose up` and `docker-compose down`
 - can scale up selected service when required
+
+
 
 ```shell
 docker-compose -v
@@ -419,6 +447,8 @@ services:  ##define a webservices
 
 **Step 4**: Run `docker-compose.yml` file command `docker-compose up -d`, `-d` is to detach
 
+`docker-compose up`: creates a running services container, mounts given volumes at given mount points, creates a private network on which our service is a logical host, and manages DNS on the private network. (DNS name of services is the service name defined in `docker-compose.yml` file)
+
 After it is done, run `docker ps` can see two container is running. One is `nginx` another is `redis`. Then go to [http://localhost:9090/](http://localhost:9090/), can see nginx application is now running
 
 **Step 5**: bring down application 
@@ -433,6 +463,28 @@ create 4 databases instances
 docker-compose up -d --scale database=4
 docker ps ## can see there are 4 redis running
 ```
+
+#### Network Modes: Bridge Mode
+
+- `depends_on`: depends_on 的service will start before the 被依靠的service. e.g. Server must start at first
+- client and server are two hosts on the same logical network
+- Bridge mode is the default for Docker network
+- Bridge networks are used when applications run in standalone containers that need to <span style="color:red">communicate</span> on the same docker daemon
+- `docker-compose` manages DNS on the networking so that it assign DNS name server to server container and assign DNS name client to client container
+
+
+e.g
+```shell
+services:
+    server:
+        build . 
+    client:
+        build .
+        depends_on 
+        - server
+```
+
+
 
 ## Docker Volume
 

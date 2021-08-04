@@ -12,6 +12,11 @@ tags:
 ---
 
 ```shell
+## fetch and merge origin 
+git fetch origin/master
+git rebase origin/master
+
+
 git clean -fd: remove untracked directories / files.
 #-fdL means force removal of untracked files and directories
 
@@ -21,6 +26,15 @@ git reset
 
 #This will revert all local uncommitted changes (should be executed in repo root):
 git checkout .
+
+## Throw away all my staged and unstagged changes, forget everything on my current local branch and make it exactly the same as origin/master
+git reset --hard origin/master
+
+## reset a single file 
+git checkout HEAD -- file.txt
+
+## Compare Branch
+git diff branch1 branch2
 
 ```
 

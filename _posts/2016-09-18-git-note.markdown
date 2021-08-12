@@ -36,6 +36,9 @@ git checkout HEAD -- file.txt
 ## Compare Branch
 git diff branch1 branch2
 
+## Move It can compare files rather than mark as delete and new
+git mv file1 file2
+
 ```
 
 
@@ -117,6 +120,12 @@ git reset --hard HEAD^^ #移到前两个commit
 
 git reset --hard 7a7ecea #把head 移到 7a7ecea这个id上面去 (看id: git status --oneline)
 #再git status --oneline 就不能看7a7ecea之后的commit的
+
+## reset 几个file 到之前的head
+git checkout 7a7ecea -- 1.py 2.py
+
+## revert to head 之前一个commit
+git checkout 7a7ecea~1 -- 1.py 2.py
 
 #也可以把head回到未来, 从上上个移动到现在的
 git reflog #看每一个的变化, 显示每一个head的移动

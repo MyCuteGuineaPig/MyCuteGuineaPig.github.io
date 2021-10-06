@@ -16,6 +16,8 @@ tags:
 git fetch origin/master
 git rebase origin/master
 
+#push After rebase
+git push --force-with-lease orgin branch1
 
 git clean -fd: remove untracked directories / files.
 #-fdL means force removal of untracked files and directories
@@ -33,11 +35,23 @@ git reset --hard origin/master
 ## reset a single file 
 git checkout HEAD -- file.txt
 
+#restore one file from previous commit
+git checkout xxxx(headID) -- file.txt
+
+
 ## Compare Branch
 git diff branch1 branch2
 
 ## Move It can compare files rather than mark as delete and new
 git mv file1 file2
+
+## Add/stage by chunk of a file
+git add --patch filename
+
+## Revert PR Change 
+
+git revert commitID
+git push -u origin branchName
 
 ```
 

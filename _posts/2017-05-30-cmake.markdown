@@ -47,19 +47,26 @@ add_executable(cmake-good main.cpp) #make exectuable, 生成exe会叫cmake-good
 
 ```
 
+- `Make`: is a buildsystem: it drives the compiler and other build tools to build your code
+- `Came` is a generator of buildsystem. It can produce `Makefiles`. It can produce Ninja build files, it can procde KDEvelop or Xcode projects.
+
+[Stackoverflow](https://stackoverflow.com/a/55801427/7992030)
+
 ```shell
 
-#build CMakeFiles
-cmake .  #引用source directory
+#Step1 : build CMakeFiles
+    cmake .  #引用source directory
  
-#build exe
-cmake --build . #引用already configured binary directory, 必须要有cache的文件, cache文件会由cmake . 生成 
-# windows 环境中 会把exe 建立在Debug folder 中, 因为默认是DEBUG
+    #build exe
+    cmake --build . #引用already configured binary directory, 必须要有cache的文件, cache文件会由cmake . 生成 
+    # windows 环境中 会把exe 建立在Debug folder 中, 因为默认是DEBUG
 
-cmake --build . --config Debug 
-#等同于上边的command,
-#cmake will run underlying msbuild tool to build VS Solution
+    cmake --build . --config Debug 
+    #等同于上边的command,
+    #cmake will run underlying msbuild tool to build VS Solution
 
+# Step 2: 
+make 
 
 ```
 
@@ -109,6 +116,11 @@ int main(){
 **<span style="background-color:#FFFF00">add_library()</span>** 第一个参数是link library名字(可以随意建立) + library 模式(static or shared), 第二个参数 是头文件，第三个参数 cpp文件
 
 **<span style="background-color:#FFFF00">target_link_libraries()</span>** 第一个参数是executable, link到谁， 第二个参数是link interface mode, 第三个参数 被link的library
+
+**<span style="background-color:#FFFF00">`find_package(xxx [version] [QUITE] [REQUIRED])`</span>**  import xxx module. Find and load settins from an external project. pull all of toolchain details, such as the names and locations of the compilers, which branch to built against, and where libraries canbe found and should always be required. 
+    - `REQUIRED` option stops processing with an error message if the package cannot be found.
+    -  `QUITE` deisable informational messages
+    - `[EXACT]` : request that the version be matched exactly. 
 
 <span style="color:red">加上add_library 和 target_link_libraries run cmake --build . (on windows) or make (on linux), 不用run cmake . </span>, 因为会automatically detect 如果CmakeLists.txt 被更改了 (out of date), 如果更改了，会自动run cmake .
 

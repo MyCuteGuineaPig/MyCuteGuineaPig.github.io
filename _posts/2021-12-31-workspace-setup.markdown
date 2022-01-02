@@ -3,7 +3,7 @@ layout:     post
 title:      "DIY workspace"
 date:       2021-12-31 20:00:00
 author:     "Becks"
-header-img: "img/post-bg2.jpg"
+header-img: "img/post-bg-rwd.jpg"
 catalog:    true
 tags:
     - workspace

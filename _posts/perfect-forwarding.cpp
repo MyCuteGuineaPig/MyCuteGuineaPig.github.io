@@ -19,7 +19,7 @@ public:
   //Forwarding references only work with templates
   template<class T> //必须用template
   void perfectSet(T && t){
-    set(std::forward<T>(t));   
+    set(std::forward<T>(t));   //argument t is always l-value
   }
 };
 

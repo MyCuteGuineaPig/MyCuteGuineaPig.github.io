@@ -17,7 +17,7 @@ Caches take advantage of the locality of reference principle: <span style="backg
 
 Caches can exist at all levels in architecture, <span style="background-color:#FFFF00">but are often found at the level nearest to the front end (**cache 通常接近front-end**)</span>, where they are implemented to return data quickly without taxing downstream levels.
 
-### Application server cache
+#### Application server cache
 
 Placing a cache directly on a request layer node enables the local storage of response data. <span style="background-color:#FFFF00">Each time a request is made to the service, the node will quickly return locally cached data if it exists. If it is not in the cache, the requesting node will fetch the data from the disk **先检查是否在cache, 如果不在fetch from the disk**<span>. The cache on one request layer node could also be located both in <span style="background-color:#FFFF00">memory (which is very fast) and on the node’s local disk (faster than going to network storage) **可以是在memory or local disk**</span>.
 
@@ -25,13 +25,13 @@ What happens when you expand this to many nodes? If the request layer is expande
 
 <span style="background-color:#FFFF00">针对cache miss的两种方法: **global caches** and **distributed caches**.</span>
 
-### Content Delivery (or Distribution) Network (CDN)#
+#### Content Delivery (or Distribution) Network (CDN)#
 
 CDNs are a kind of cache that comes into play for sites <span style="background-color:#FFFF00">**serving large amounts of static media**</span>. In a typical CDN setup, a request will first ask the CDN for a piece of static media; the CDN will serve that content if it has it <span style="background-color:#FFFF00">**locally available**</span>. <span style="color:red">If it isn’t available</span>, the CDN will <span style="background-color:#FFFF00">**query the back-end servers for the file**</span>, cache it locally, and serve it to the requesting user. (先看CDN 有没有local cache, 如果没有再query server)
 
 If the system we are building is not large enough to have its own CDN, we can ease a future transition by serving the static media off a separate subdomain (e.g., static.yourservice.com) using a lightweight HTTP server like Nginx, and cut-over the DNS from your servers to a CDN later.
 
-### Cache Invalidation
+#### Cache Invalidation
 
 If the <span style="color:red">**data is modified in the database, it should be invalidated in the cache**</span>; if not, this can cause inconsistent application behavior. Solving this problem is known as cache invalidation
 
@@ -44,7 +44,7 @@ Although, write-through minimizes the risk of data loss, since every write opera
  
 <span style="background-color:#FFFF00">**Write-back cache**</span>: Under this scheme, data is written to cache alone, and completion is immediately confirmed to the client. <span style="color:red">**The write to the permanent storage is done after specified intervals or under certain conditions**</span>. This results in <span style="color:red">**low-latency and high-throughput for write-intensive applications;**</span> however, this speed <span style="color:red">**comes with the risk of data loss**</span> in case of a crash or other adverse event because the only copy of the written data is in the cache. <span style="background-color:#FFFF00">**(全部写入cache, 特定的时间段再写入DB, 有data 丢失的风险)**</span>
 
-### Cache eviction policies#
+#### Cache eviction policies#
 
 - **First In First Out (FIFO)**: The cache evicts the first block accessed first without any regard to how often or how many times it was accessed before.
 - **Last In First Out (LIFO)**: The cache evicts the block accessed most recently first without any regard to how often or how many times it was accessed before.
@@ -62,7 +62,7 @@ A CDN allows for the <span style="color:red">**quick transfer **</span>of assets
 
 A properly configured CDN may also help protect websites against some common malicious attacks, such as Distributed Denial of Service (DDOS) attacks.
 
-### benefits of using a CDN
+#### benefits of using a CDN
 
 - **Improving website load times** - By distributing content <span style="background-color:#FFFF00">**closer to website visitors**</span> by using a nearby CDN server (among other optimizations), visitors experience **faster page loading times**. As visitors are more inclined to click away from a slow-loading site, a CDN can reduce bounce rates and increase the amount of time that people spend on the site. In other words, <span style="background-color:#FFFF00">a faster a website means more visitors will stay and stick around longer</span>.
 - **Reducing bandwidth costs** - Bandwidth consumption costs for website hosting is a primary expense for websites. Through caching and other optimizations, CDNs are able to <span style="color:red">**reduce the amount of data an origin server must provide**</span>, thus <span style="background-color:#FFFF00">**reducing hosting costs**</span> for website owners.
@@ -70,7 +70,7 @@ A properly configured CDN may also help protect websites against some common mal
 - **Improving website security** - A CDN may improve security by providing DDoS mitigation, improvements to security certificates, and other optimizations.
 
 
-### How does a CDN work?
+#### How does a CDN work?
 
 At its core, a CDN is a network of servers linked together with the goal of delivering content as **quickly, cheaply, reliably, and securely** as possible. In order to improve speed and connectivity, a CDN will <span style="background-color:#FFFF00">**place servers at the exchange points between different networks (Server 放在所有network 中间)**</span>.
 
@@ -81,7 +81,7 @@ At its core, a CDN is a network of servers linked together with the goal of deli
 Beyond placement of servers in IXPs, a CDN **makes a number of optimizations on standard client/server data transfers**. CDNs <span style="background-color:#FFFF00">**place Data Centers at strategic locations**</span> across the globe, enhance security, and are designed to survive various types of failures and Internet congestion.
 
 
-### Latency - How does a CDN improve website load times?
+#### Latency - How does a CDN improve website load times?
 
 
 - The globally distributed nature of a CDN means <span style="background-color:#FFFF00">**reduce distance between users and website resources (减少user 和website resource 距离)**</span>. Instead of having to connect to wherever a website’s origin server may live, a CDN lets users <span style="background-color:#FFFF00">**connect to a geographically closer data center**</span>. Less travel time means faster service.
@@ -89,7 +89,7 @@ Beyond placement of servers in IXPs, a CDN **makes a number of optimizations on 
 - CDNs can reduce the amount of data that’s transferred by <span style="background-color:#FFFF00">**reducing file sizes using tactics such as minification and file compression**</span>. Smaller file sizes mean quicker load times.
 - CDNs can also <span style="color:red">speed up sites which use TLS/SSL certificates by optimizing connection reuse and enabling TLS false start</span>.
 
-### Reliability and Redundancy - How does a CDN keep a website always online?
+#### Reliability and Redundancy - How does a CDN keep a website always online?
 
 Uptime is a critical component for anyone with an Internet property. Hardware failures and spikes in traffic, as a result of either malicious attacks or just a boost in popularity, have the potential to bring down a web server and prevent users from accessing a site or service. A well-rounded CDN has several features that will minimize downtime:
 
@@ -97,6 +97,6 @@ Uptime is a critical component for anyone with an Internet property. Hardware fa
 - <span style="color:red">**Intelligent failover provides uninterrupted service even if one or more of the CDN servers go offline**</span> due to hardware malfunction; the failover can <span style="background-color:#FFFF00">**redistribute the traffic (可以redistribute traffic 到背的server)**</span> to the other operational servers.
 - In the event that an entire data center is having technical issues, <span style="background-color:#FFFF00">**Anycast routing transfers the traffic to another available data center (如果一个data center 有问题，transfer 到另外一个)**</span>, ensuring that no users lose access to the website.
 
-### Data Security - How does a CDN protect data?
+#### Data Security - How does a CDN protect data?
 
 Information security is an integral part of a CDN. a CDN can keep a site secured with <span style="color:red">fresh TLS/SSL certificates</span> which will ensure a high standard of <span style="color:red">authentication, encryption, and integrity</span>. Investigate the security concerns surrounding CDNs, and explore what can be done to securely deliver content. Learn about CDN SSL/TLS security

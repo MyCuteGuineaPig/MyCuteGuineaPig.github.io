@@ -100,3 +100,18 @@ Uptime is a critical component for anyone with an Internet property. Hardware fa
 #### Data Security - How does a CDN protect data?
 
 Information security is an integral part of a CDN. a CDN can keep a site secured with <span style="color:red">fresh TLS/SSL certificates</span> which will ensure a high standard of <span style="color:red">authentication, encryption, and integrity</span>. Investigate the security concerns surrounding CDNs, and explore what can be done to securely deliver content. Learn about CDN SSL/TLS security
+
+
+## Data Partitioning
+
+Data partitioning is a technique to <span style="background-color:#FFFF00">**break a big database (DB) into many smaller parts**</span>. It is the process of splitting up a DB/table across multiple machines to improve the manageability, performance, availability, and load balancing of an application. The justification for data partitioning is that, after a certain scale point, <span style="background-color:#FFFF00">**it is cheaper and more feasible to scale horizontally by adding more machines than to grow it vertically by adding beefier servers**</span>.
+
+
+#### 1. Partitioning Methods#
+
+**Horizontal Partitioning**: In this scheme, we put different rows into different tables. For example, if we store different places in a table, we can decide that locations with ZIP codes less than 10000 are stored in one table and places with ZIP codes greater than 10000 are stored in a separate table. This is also called <span style="background-color:#FFFF00">**range-based Partitioning**</span> as we are storing different ranges of data in separate tables. <span style="background-color:#FFFF00">**Horizontal Partitioning is also known as Data Sharding**</span>.
+
+The key problem with this approach is that if the value whose range is used for Partitioning isn’t chosen carefully, then the partitioning scheme will lead to **unbalanced servers**. In the previous example, splitting locations based on their zip codes assume that <span style="color:red">**places will be evenly distributed across the different zip codes**</span>. This assumption is not valid as there will be a lot of places in a thickly populated area like Manhattan as compared to its suburb cities.
+
+
+**Vertical Partitioning**: 

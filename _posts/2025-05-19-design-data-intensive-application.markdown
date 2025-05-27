@@ -134,3 +134,67 @@ failover consists of following steps:
     - <span style="background-color:#FFFF00">**Disadvantage**</span>:<span style="color:red">log describes the data on a very low level</span>
       - **makes replication closely coupled to the storage engine**. If the database changes its storage format, <span style="background-color:#FFFF00">typically not possible to run different versions of the database software on the leader and the followers</span> 如果database change format 不能run 两种在leader和follower
       - <span style="background-color:#FFFF00">**听起来minor implementation, big impact, 如果follower可以有different version than leader, 可以 zero-downtime upgrade of database by first upgrading followers 再performing a failover to 让其中一个follower变成leader. 如果replication protocol does not allow version mismatch -> 这种upgrades 需要downtime**</span>
+  - <span style="background-color:#FFFF00">**Logical (row-based) log replication**</span>：use different log formats for replication and for the storage engine, which<span style="background-color:#FFFF00">**allows the replication log to be decoupled from the storage engine internals**. </span>This kind of replication log is called a <span style="background-color:#FFFF00">**logical log**</span>, to distinguish it from the storage engine’s (physical) data representation
+    - A logical log for a relational database is usually a **sequence of records describing writes to database tables** at the granularity of a row:
+      - For an inserted row, the log contains the new values of all columns. 
+      - For a deleted row, the log contains enough information to uniquely identify the row that was deleted. Typically this would be the primary key, but if there is no primary key on the table, the old values of all columns need to be logged
+      - For an updated row, the log contains enough information to uniquely identify the updated row, and the new values of all columns (or at least the new values of all columns that changed).
+      - a logical log is decoupled from the storage engine internals, <span style="background-color:#FFFF00">**it can more easily be kept backward compatible**</span>
+      - easier for external applications to parse
+- <span style="background-color:#FFFF00">**Trigger-based replication**</span>：上面都没有involve application code, 但有时候want only a subset of data, replicate from one kind of database to another -> move replication up to the application layer.
+  - Some tools, such as Oracle GoldenGate [19], can make data changes available to an application by reading the database log
+  - A trigger lets you register custom application code that is automatically executed when a data change (write transaction) occurs in a database system.
+    - <span style="background-color:#FFFF00">**log this change into a separate table**</span>. read by external process. External process can apply 任何application logic and replicate the data change to another system.
+  - has overheads than other method, 更prone to bug
+
+
+#### Problems with Replication Lag
+
+<span style="background-color:#FFFF00">**read-scaling architecture**</span>: increase the capacity for serving read-only requests simply by adding more followers. 只work for async, 如果sync, 一个follower failure or network outage -> make entire system unavailable for writing.  -> more nodes, 越unreliable
+
+<span style="background-color:#FFFF00">**如果application read from aync follower, 也许outdated information. inconsistencies in the database**</span>. if you stop writing to the database and wait a while, the followers will eventually catch up and become consistent with the leader. the delay between a write happening on the leader and being reflected on a follower—<span style="background-color:#FFFF00">**the replication lag**</span>. 大概几秒not noticable
+
+
+#### Reading Your Own Writes
+
+- async, if the user views the data shortly after making a write, the new data may not yet have reached the replica. 
+  -  we need <span style="color:red">*read-after-write consistency*</span>, also known as <span style="background-color:#FFFF00">**read-your-writes consistency**</span>. This is a guarantee that <span style="background-color:#FFFF00">**if the user reloads the page, they will always see any updates they submitted themselves**. </span>It makes no promises about other users.
+  
+
+How to implement? 
+
+- When reading something that the user may have modified, read it from the
+leader; otherwise, read it from a follower. 需要一定机制know whether modified 
+  - 比如, user profile on social network, 只能owner 修改，a simple rule: always rad the user's own profile from the leader, any other users' profile from a follower
+  - make all reads from the leader. 比如 monitor the replication lag on followers and prevent queries on any follower that is more than one minute behind the reader. 
+  - <span style="color:red">client can remember the timestamp of most recent write</span> - system can ensure that the replica serving any reads fro that user reflects updates at tleast until that timestamp. 如果replica not up to date, <span style="color:red">either the read can be handled by another replica or query can wait unitl the replica has caught up</span>. timestamp 可以是logical timestamp or actual system clock
+  - 如果 replicas distributed across multiple datacenters, additonal complexity, <span style="background-color:#FFFF00">**Any request that needs to be served by the leader must routed to the datacenter that contains the leader**</span>
+
+
+**cross-device read-after-write consistency**: 比如desktop write, view it on another device.<span style="background-color:#FFFF00">**If your replicas are distributed across different datacenters, there is no guarantee that connections from different devices will be routed to the same datacenter**</span>. 如果replica 是不同的datacenter, 不能保证connection from different device route to the same datacenter
+
+
+<span style="background-color:#FFFF00">**Monotonic reads**</span>： they will not read older data after having previously read newer data.
+
+
+<span style="background-color:#FFFF00">**consistent prefix reads**</span>. This guarantee says that if a sequence of writes happens in a certain order, then anyone reading those writes will see them appear in the same order. <span style="background-color:#FFFF00">One solution is to make sure that any writes that are causally related to each other are written to the same partition</span>
+
+
+#### Multiple-Leader Replication 
+
+- allow more than one node to accept writes (<span style="background-color:#FFFF00">**multi-leader configuration**</span>, also known as <span style="background-color:#FFFF00">**master–master**</span> or a<span style="background-color:#FFFF00">**ctive/active replication**</span>)
+  - Replication still happens in the same way: <span style="background-color:#FFFF00">**each node that processes a write must forward that data change to all the other nodes**</span>.
+  - Multi-datacenter operation. 非常rare只有一个datacenter. have a leader in each datacenter
+    - Within each datacenter, regular leader-follower replication is used; between datacenters, <span style="background-color:#FFFF00">**each datacenter’s leader replicates its changes to the leaders in other datacenters**</span>.
+
+
+
+- <span style="background-color:#FFFF00">**Performance**</span>:In a single-leader configuration, every write must go over the internet to the datacenter with the leader. This can add significant latency to writes and might contravene the purpose of having multiple datacenters in the first place. In a multi-leader configuration, <span style="background-color:#FFFF00">**every write can be processed in the local datacenter and is replicated asynchronously to the other datacenters**</span>. Thus, the inter-datacenter <span style="background-color:#FFFF00">**network delay is hidden from users**</span>, which means the perceived performance may be better 
+- <span style="background-color:#FFFF00">**Tolerance of datacenter outages**</span>:each datacenter can continue operating independently of the others, and replication catches up when the failed datacenter comes back online (<span style="background-color:#FFFF00">**每个datacenter 都是相互独立的，replication 可以catches up when failed, datacenter可以come back oneline**</span>)
+- **Tolerance of network problems**: 
+  - Traffic between datacenters usually goes over the public internet, which may be less reliable than the local network within a datacenter
+  - A single-leader configuration is very sensitive to problems in this inter-datacenter link. (<span style="background-color:#FFFF00">**Single-leader 是非常容易受到inter-datacenter link影响的, 因为write sync over this link**</span>)
+  - A multi-leader configuration with <span style="background-color:#FFFF00">**asynchronous**</span> replication can usually tolerate network problems better: **a temporary network interruption does not prevent writes being processed** (<span style="background-color:#FFFF00">暂时的network interruption 不会影响writes being processed</span>)
+- Multiple leader database 例子：  Tungsten Replicator for MySQL [26], BDR for PostgreSQL [27], and GoldenGate for Oracle
+- disadvantage:  the same data may be concurrently modified in two different datacenters, and those <span style="background-color:#FFFF00">**write conflicts must be resolved**</span>
+- <span style="background-color:#FFFF00">**autoincrementing keys, triggers, and integrity constraints can be problematic**</span>. For this reason, multi-leader replication is often considered <span style="color:red">**dangerous**</span> territory that should be avoided if possible 

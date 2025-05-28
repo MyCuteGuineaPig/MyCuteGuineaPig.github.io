@@ -198,3 +198,17 @@ leader; otherwise, read it from a follower. 需要一定机制know whether modif
 - Multiple leader database 例子：  Tungsten Replicator for MySQL [26], BDR for PostgreSQL [27], and GoldenGate for Oracle
 - disadvantage:  the same data may be concurrently modified in two different datacenters, and those <span style="background-color:#FFFF00">**write conflicts must be resolved**</span>
 - <span style="background-color:#FFFF00">**autoincrementing keys, triggers, and integrity constraints can be problematic**</span>. For this reason, multi-leader replication is often considered <span style="color:red">**dangerous**</span> territory that should be avoided if possible 
+
+
+需要multi-leader replication if you have an application that needs to continue to work while it is disconnected from the internet. 比如电脑，手机操作是sync的， <span style="background-color:#FFFF00">**every device has a local database that acts as a leader**</span> -> extremely unreliable
+
+Google doc 多个人editing. <span style="color:red">changes are instantly applied to their local replica (the state of the document in their web browser or client application) and asynchronously replicated to the server and any other users who are editing the same document</span>. If you want to guarantee that there will be no editing conflicts, the application must obtain a lock on the document before a user can edit it. If another user wants to edit the same document, they first have to wait until the first user has committed their changes and released the lock
+ 
+
+#### Handling Write Conflicts
+
+![](/img/post/ddia/5-7.png)
+
+
+- In a single-leader database, the second writer will either block and wait for the first write to complete, or abort the second write transaction, forcing the user to retry the write.
+

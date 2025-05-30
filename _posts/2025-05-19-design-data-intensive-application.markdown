@@ -210,5 +210,110 @@ Google doc 多个人editing. <span style="color:red">changes are instantly appli
 ![](/img/post/ddia/5-7.png)
 
 
-- In a single-leader database, the second writer will either block and wait for the first write to complete, or abort the second write transaction, forcing the user to retry the write.
+- In a single-leader database, the second writer will either block and wait for the first write to complete, or abort the second write transaction, forcing the user to retry the write. (第二个会等第一个完成)
+- in a multi-leader setup, both writes are successful, and the conflict is only detected asynchronously at some later point in time (不会有conflict)
+- avoid conflict 最简单的办法: all writes for a particular record go through the same leader, then conflicts cannot occur
+- 有时候要change designated leader 因为datacenter failed, 需要reroute traffic to another datacenter 或者 a user move to a different location 现在close to a different datacenter. 这种情况, have to deal with the possibility of concurrent writes on different leaders
+
+几种方式resolve conflict
+
+- Give each write a unique ID, 最高ID as the winner
+- If timestamp is used, last write wins (**<span style="background-color:#FFFF00">可能会有data loss</span>**)
+- <span style="background-color:#FFFF00">给每个replica 一个ID, writes that originated at a higher numbered replica always take precendence over writes that originated at a lower-numbered replica. => implies data loss
+</span>
+- Somehow merge the values together—e.g., order them alphabetically and then concatenate them
+- Record the conflict in an explicit data structure that preserves all information,and write application code that resolves the conflict at some later time
+
+
+**Custom conflict resolution logic**
+
+- <span style="background-color:#FFFF00">**On write**</span>: detects a conflict in the log of replicated changes, it calls the conflict handler. This handler typically cannot prompt a user—it <span style="background-color:#FFFF00">**runs in a background process and it must execute quickly**</span>
+- <span style="background-color:#FFFF00">**On read**</span>: The application may <span style="background-color:#FFFF00">**prompt the user or automatically resolve the conflict**</span>, and write the result back to the database.比如 CouchDB
+
+#### Multi-Leader Replication Topologies
+
+![](/img/post/ddia/5-8.png)
+
+- <span style="background-color:#FFFF00">**all-to-all**</span>: every leader sends its writes to every other leader. 
+  - <span style="background-color:#FFFF00">**与star和circular相比 没有single points of failure**</span> 
+  - 但也有问题， ome network links may be faster than others (e.g., due to network congestion), with the result that some replication messages may “overtake” others, as illustrated in 图。leader 2 收到writes in different order 
+    - **Consistent Prefix Reads**: 需要make sure insert first then update. Simply use timestamp 不行，因为clock cannot be trusted to be sufficiently in sync to correctly order these events at leaders
+- <span style="background-color:#FFFF00">**circular topology**</span> [34], in which each node receives writes from one node and forwards those writes (plus any writes of its own) to one other node.
+  - To prevent infinite replication loops, <span style="background-color:#FFFF00">**each node is given a unique identifier**</span>, and in the replication log, each write is tagged with the identifiers of all the nodes it has passed through
+- <span style="background-color:#FFFF00">**a star**</span>:v one designated root node forwards writes to all of the other nodes
+
+![](/img/post/ddia/5-9.png)
+
+A problem with circular and star topologies is that if just one node fails, it can interrupt the flow of replication messages between other nodes, causing them to be unable to communicate until the node is fixed (<span style="background-color:#FFFF00">**对于circular 和star, 一个node 坏了可能影响着其他的node**</span>)。 The topology could be reconfigured to work around the failed node, but in most deployments such reconfiguration would have to be done manually
+
+
+#### Leaderless Replication
+
+Dynamo system (Amazon). Riak, Cassandra, and Voldemort are open source datastores with leaderless replication models inspired by Dynamo, so this kind of database is also known as Dynamo-style
+
+In some leaderless implementations, the client directly sends its writes to several replicas, while in others, a coordinator node does this on behalf of the client. However, unlike a leader database, that coordinator does not enforce a particular ordering of writes (<span style="background-color:#FFFF00">**client 直接发给replicas, coordinator node 做这个behalf of client, 不像leader database, coordinator 不会enforce a particular ordering of writes**</span>)
+
+
+<span style="background-color:#FFFF00">**failover**</span>:
+
+- leader-based configure, 想processing writes, perform a failover
+- leaderless configuration. failover 不存在
+
+![](/img/post/ddia/5-10.png)
+
+replica 3 miss the write. <span style="color:red">**当replica 3 back online, 可能有stale data**</span>. read requests are also sent to several nodes in parallel. The client may get different responses from different nodes; i.e., the up-to-date value from one node and a stale value from another. <span style="background-color:#FFFF00">**Version numbers**</span> are used to determine which value is newer.   
+
+
+**Read repair and anti-entropy**
+
+- <span style="background-color:#FFFF00">**Read repair**</span>: 比如user read version 1 and 3 from replica 1 and 2. see replica 3 has a stale value, and writes the newer value back to that replica.
+- <span style="background-color:#FFFF00">**Anti-entropy process**</span>: some datastore have a background process 持续看differences in the data between replicas and copies any missing data from one replica to another.
+  - this anti-entropy process does not copy writes in any particular order, and there maybe a significant delay before data is copied 
+
+
+If there are **n replicas**, every write must be confirmed by **w nodes** to be considered successful, and we must query **at least r nodes** for each read. (In our example, n = 3, w = 2, r = 2.) As long as <span style="background-color:#FFFF00">**w + r > n**</span>, we expect to get an up-to-date value when reading, because at least one of the r nodes we’re reading from must be up to date. Reads and writes that obey these <span style="background-color:#FFFF00">**r and w values are called quorum reads and writes**</span>. You can think of r and w as the minimum number of votes required for the read or write to be valid.
+
+In Dynamo-style databases, <span style="background-color:#FFFF00">**the parameters n, w, and r are typically configurable**</span>. A common choice is to make n an odd number (typically 3 or 5) and to set w = r = (n + 1) / 2 (rounded up)
+
+For example, a workload with few writes and many reads may benefit from setting w = n and r = 1. This<span style="color:red">** makes reads faster, but has the disadvantage that just one failed node causes all database writes to fail 设置w, n ,r 都是1， 可以make read faster 但是single point of failure**</span>.
+
+<span style="background-color:#FFFF00">**w+r>n, exepect every read to return the most recent value written for a key, because the set of nodes to which you’ve written and the set of nodes from which you’ve read must overlap 因read 和write 一定会重合一些node**</span>
+
+- If w < n, we can still process writes if a node is unavailable.
+- If r < n, we can still process reads if a node is unavailable.
+- With n = 3, w = 2, r = 2 we can tolerate one unavailable node.
+- With n = 5, w = 3, r = 3 we can tolerate two unavailable nodes
+
+![](/img/post/ddia/5-11.png)
+
+
+<span style="background-color:#FFFF00">**If fewer than the required w or r nodes are available, writes or reads return an error**</span>. A node could be unavailable for many reasons: because the node is down (crashed, powered down), due to an error executing the operation (can’t write because the disk is full), due to a network interruption between the client and the node, or for any number of other reasons
+
+Often, <span style="background-color:#FFFF00">**r and w are chosen to be a majority**</span> (more than n/2) of nodes, because that ensures w + r > n while still tolerating up to n/2 node failures.
+
+may also <span style="background-color:#FFFF00">**set w and r to smaller numbers, so that w + r ≤ n**</span> (i.e., the quorum condition is not satisfied). In this case, reads and writes will still be sent to n nodes, <span style="background-color:#FFFF00">**but a smaller number of successful responses is required for the operation to succeed**</span>
+
+- <span style="background-color:#FFFF00">**return stale value**</span>
+- <span style="background-color:#FFFF00">**allow lower latency and higher availability**</span>
+- if there is a network interruption and many replicas become unreachable, there’s a higher chance that you can continue processing reads and writes. Only after the number of reachable replicas falls below w or r does the database become unavailable for writing or reading, respectively
+
+但是 即使 w + r > n 也有edge cases where stale values are returned 
+
+- If a <span style="background-color:#FFFF00">**sloppy quorum**</span> is used, the w writes may end up on different nodes than the r reads, so there is no longer a guaranteed overlap between the r nodes and the w nodes
+- If two writes occur concurrently, it is not clear which one happened first. In this case, the only safe solution is to merge the concurrent writes, If a winner is picked based on a timestamp (last write wins), writes can be lost due to clock skew
+- If a write happens concurrently with a read, the write may be reflected on only some of the replicas. In this case, it’s undetermined whether the read returns the old or the new value
+- If a write succeeded on some replicas but failed on others (for example because the disks on some nodes are full), and overall succeeded on fewer than w replicas, it is not rolled back on the replicas where it succeeded. This means that if a write was reported as failed, subsequent reads may or may not return the value from that write
+- If a node carrying a new value fails, and its data is restored from a replica carrying an old value, the number of replicas storing the new value may fall below w, breaking the quorum condition 一个node fail 从old replica 恢复，可能没有新的数据
+- Even if everything is working correctly, there are edge cases in which you can get unlucky with the timing
+
+
+Dynamo-style databases are generally optimized for use cases that can tolerate eventual consistency.
+
+#### Monitoring staleness
+
+- because writes are applied to the leader and to followers in the same order, and <span style="background-color:#FFFF00">**each node has a position in the replication log**</span>. By subtracting a follower’s current position from the leader’s current position, you can measure the amount of replication lag.
+- <span style="background-color:#FFFF00">**Leaderless Replication**</span>, there is **no fixed order** in which writes are applied, which makes monitoring more difficult.
+  - 如果only use only uses read repair (no anti-entropy), there is no limit to how old a value might be f a value is only infrequently read, the value returned by a stale replica may be ancient.
+
+#### Sloppy Quorums and Hinted Handoff
 

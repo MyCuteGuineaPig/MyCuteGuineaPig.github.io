@@ -367,3 +367,22 @@ For defining concurrency, exact time doesn’t matter. we simply call two operat
 - <span style="background-color:#FFFF00">**use a version number per replica as well as per key**</span>. Each replica increments its own version number when processing a write, and also keeps track of the version numbers it has seen from each of the other replicas. <span style="background-color:#FFFF00">**每一个replica的每个key 都有一个version number**</span>
 - The version vector allows the database to distinguish between overwrites and concurrent writes. <span style="background-color:#FFFF00">**version vector 用来区分是overwrites 还是concurrent writes**</span>
   - 确保了safe to read from one replica and subsequently write back to another replica
+
+## Partition
+
+partitions are defined in such a way that each piece of data (each record, row, or document) belongs to exactly one partition. 
+
+Main reason for wanting to partition data is <span style="background-color:#FFFF00">**scalability**</span>. Partition usually combine with replication. 表示即使each record belongs to exactly one partition, it may still be <span style="background-color:#FFFF00">**stored on several different nodes for fault tolerance**</span>. 
+
+A node may store than one partition. 如果leader-follower replication model is used, combination of parittiong and replication can look like below. Each partitions's leader is assigned to one node, and its followers are assigned to other nodes. 每个node maybe the leader for some partitions and a follower for other parition
+
+![](/img/post/ddia/6-1.png)
+
+<span style="background-color:#FFFF00">**skewed**</span>: if partition is unfair, some partitions have more data or queries than others. Skewed 出现makes partitiong much less effective. A partition with disproportionately high load is called a <span style="background-color:#FFFF00">**hot spot**</span>.
+
+避免hot spot最简单的方法就是assign records to nodes randomly, <span style="background-color:#FFFF00">**有disadvantage**</span>: 当read a particular item, have no way of knowing which node it is on, 必须query all nodes in parallel. 
+
+
+#### Partitioning by Key Range
+
+assign a continuous range of keys (从最小到最大) to each partition, 像百科全书一样. If you know the boundaries bewteen ranges, can easily determin which partion contains a given key. <span style="color:purple">如果知道which partition is assigned to which node, 可以make your request directly to the appropriate node</span>.

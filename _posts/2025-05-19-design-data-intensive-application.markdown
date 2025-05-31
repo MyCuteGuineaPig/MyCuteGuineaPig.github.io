@@ -317,3 +317,53 @@ Dynamo-style databases are generally optimized for use cases that can tolerate e
 
 #### Sloppy Quorums and Hinted Handoff
 
+- 如果有internet issue, a client that is cut off from the database nodes, they might aslo dead. 很有可能少于w or r个 reachable nodes remain, client no longer reach a quorum. 
+- <span style="background-color:#FFFF00">**Sloppy quorum**</span>: accept writes anyway, write them to some nodes that are reachable but aren't among the n nodes on which the value usually lives
+  - writes and reads still require w and r successful responses, but those may include nodes that are not among the designated n “home” nodes for a value. 比如你家被锁了，在邻居家暂住一下
+  - Once the network interruption is fixed, any writes that one node temporarily accepted on behalf of another node are sent to the appropriate “home” nodes 当internet 恢复，the node tempoarily accepted write 被发到原来属于的nodes
+- Sloppy quorums are particularly useful for <span style="background-color:#FFFF00">**increasing write availability**</span>: as long as any w nodes are available, the database can accept writes. However, this means that even when w + r > n, you cannot be sure to read the latest value for a key, because the latest value may have been temporarily written to some nodes outside of n
+- **a sloppy quorum actually isn’t a quorum at all in the traditional sense**. It’s only an assurance of <span style="background-color:#FFFF00">**durability**</span>, namely that the data is stored on w nodes somewhere. There is no guarantee that a read of r nodes will see it until the hinted handoff has completed
+
+
+#### Detecting Concurrent Writes
+
+events may arrive in a different order at different nodes, due to variable network delays and partial failures
+
+![](/img/post/ddia/5-12.png)
+
+
+- Node 1 receives the write from A, but never receives the write from B due to a
+transient outage.
+- Node 2 first receives the write from A, then the write from B.
+- Node 3 first receives the write from B, then the write from A.
+
+If each node simply overwrote the value for a key whenever it received a write request from a client, the nodes would become permanently inconsistent. 如果一个node 只是简单的接受一个node, node变得inconsistent
+
+**Last write wins (discarding concurrent writes)** conflict resolution method in Cassandra
+
+- One approach for achieving eventual convergence is to declare that each replica <span style="background-color:#FFFF00">need only store the most “recent” valu</span>e and allow “older” values to be overwritten and discarded
+  - 只要有一种方式决定什么是more recent, every writes is eventually copied to every replica, the replicas will 最终converge to the same value 
+- at the cost of <span style="background-color:#FFFF00">**durability**</span>: 
+  - several concurrent writes to the same key, even if they were all reported as successful to the client (because they were written to w replicas), only one of the writes (多个write，可能都返回给client成功，最后很有可能只有一个成功)
+will survive and the others will be silently discarded
+- LWW may drop writes that are not concurrent
+- only safe way of using a database with LWW is to ensure that <span style="background-color:#FFFF00">**a key is only written once and thereafter treated as immutable**</span>, thus <span style="background-color:#FFFF00">**avoiding any concurrent updates to the same key**</span>
+
+Concurrent 表示没有causal dependency. casual dependency 比如 set value = 1, 第二个operation是 value = value + 1, 如果没有value 就不能到第二步
+
+whenever you have two operations A and B, there are three possibilities: either A happened before B, or B happened before A, or A and B are concurrent.
+
+For defining concurrency, exact time doesn’t matter. we simply call two operations concurrent if they are both unaware of each other, regardless of the physical time at which they occurred
+
+
+**algorithm**: use version number
+
+- The server maintains a version number for every key, increments the version number every time that key is written, and stores the new version number along with the value written.
+- When a client reads a key, the server returns all values that have not been over‐ written, as well as the latest version number. A client must read a key before writing. client必须 reads a key before writing   
+- When a client writes a key, it must include the version number from the prior read, and it must merge together all values that it received in the prior read. (The response from a write request can be like a read, returning all current values, which allows us to chain several writes like in the shopping cart example.) 当client writes a key, <span style="background-color:#FFFF00">**必须include the version number 从之前的read, 必须merge all values that it received by prior read**</span>
+- When the server receives a write with a particular version number, it can over‐ write all values with that version number or below (since it knows that they have been merged into the new value), but it must keep all values with a higher version number (because those values are concurrent with the incoming write). <span style="background-color:#FFFF00">**当server 收到一个write with version, 必须overwrite all values <= 它的version number, keep all values with a higher version number**</span>
+- 如果是remove, take the union may not yield the right result.
+  - an item cannot simply be deleted from the database when it is removed; instead the system must leave a marker with an appropriate version number to indicate that the item has been removed when merging siblings. Such a <span style="background-color:#FFFF00">**deletion marke**</span>r is known as a <span style="background-color:#FFFF00">**tombstone**</span>
+- <span style="background-color:#FFFF00">**use a version number per replica as well as per key**</span>. Each replica increments its own version number when processing a write, and also keeps track of the version numbers it has seen from each of the other replicas. <span style="background-color:#FFFF00">**每一个replica的每个key 都有一个version number**</span>
+- The version vector allows the database to distinguish between overwrites and concurrent writes. <span style="background-color:#FFFF00">**version vector 用来区分是overwrites 还是concurrent writes**</span>
+  - 确保了safe to read from one replica and subsequently write back to another replica

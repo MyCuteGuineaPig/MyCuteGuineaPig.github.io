@@ -386,3 +386,128 @@ A node may store than one partition. 如果leader-follower replication model is 
 #### Partitioning by Key Range
 
 assign a continuous range of keys (从最小到最大) to each partition, 像百科全书一样. If you know the boundaries bewteen ranges, can easily determin which partion contains a given key. <span style="color:purple">如果知道which partition is assigned to which node, 可以make your request directly to the appropriate node</span>.
+
+![](/img/post/ddia/6-2.png)
+
+simple having one volume per two letters of alphabet 导致 some volumes being much bigger than others. 为了distribute the data evenly, the parition boundaries need to adapt to the data.  
+
+the downside of key range partitioning is that <span style="background-color:#FFFF00">**certain access patterns can
+lead to hot spots**</span>
+
+
+#### Partitioning by Hash of Key
+
+Because of the risk of skew and hot spots, many distributed datastores 使用a hash function to determine the partition for a given key. <span style="background-color:#FFFF00">**A good hash function takes skewed data and make it uniformly distributed**</span>. 
+
+
+Once you have a suitable hash function for keys, you can assign each partition a range of hashes (rather than a range of keys), and every key whose hash falls within a partition’s range will be stored in that partition.
+
+![](/img/post/ddia/6-3.png)
+
+
+
+**Consistent Hashing**:  is a way of <span style="background-color:#FFFF00">**evenly distributing load**</span> across an internet-wide system of caches such as a <span style="background-color:#FFFF00">**content delivery network (CDN)**</span>. It randomly chosen partition boundaries to avoid the need for central control or distributed consensus. (<span style="background-color:#FFFF00">**consistent here has nothing to do with replica consistency or ACID consistency**</span>). Describes a particular approach to rebalancing.
+
+
+Downside of hash: lose a nice property of key-range partition: do efficent range queries. <span style="color:purple">**Keys that were once adjacent are now scattered across all the partitions. sort order is lost**</span>.
+
+Cassandra achieves a compromise between the two partitioning strategies. <span style="background-color:#FFFF00"> Cassandra can be declared with a **compound primary key** consisting of several columns</span>. Only the <span style="background-color:#FFFF00">**first part of that key is hashed to determine the partition**</span>, but the other columns are <span style="color:red">used as a concatenated index for sorting the data in Cassandra’s SSTables</span>. A query therefore cannot search for a range of values within the first column of a compound key, but if it specifies a fixed value for the first column, it can perform an efficient range scan over the other columns of the key. <span style="background-color:#FFFF00">**第一个key决定partition, 第二个key 决定sorted order**</span>
+
+比如Cassandra, primary key for update `(user_id, update_timestamp)`. 可以efficiently retrieve all updates made by a particular user within some time interval, sorted by timestamp. 不同的user may be stored on different partitions, 但是within each user, updates are stored ordered by timestamp on a single partition 
+
+#### Skewed Workloads and Relieving Hot Spots
+
+- 比如名人的twitter, application responsibility to reduce the skew. 比如一个key too hot, add a random number to hte beginning or end of the key. 比如两个random number 可以writs to the key evenly across 1000 different keys
+- Read has addtional work. have to read the data from all 100 keys and combine it -> <span style="background-color:#FFFF00">需要additional bookkeeping. Only make sense to append the random number for small number of hot keys. 对于大多数keys with low write throughput, 将会是overhead</span>.
+- need trade-off for applicaiton
+
+**Partition by document 是 each partition holds a subset of the entire collection of documents. Partition by term (global indexing) 表示index  itself is parititoned**
+
+
+#### Partitioning and Secondary Indexes
+
+A secondary index usually doesn’t identify a record uniquely but rather is a way of <span style="background-color:#FFFF00">**searching for occurrences of a particular value**</span>
+
+<span style="background-color:#FFFF00">**The problem with secondary indexes is that they don’t map neatly to partitions.**</span> There are two main approaches to partitioning a database with secondary indexes: <span style="background-color:#FFFF00">**document-based partitioning**</span> and <span style="background-color:#FFFF00">**term-based partitioning**</span>
+
+#### Partitioning Secondary Indexes by Document
+
+Each listing has a unique ID—call it the <span style="background-color:#FFFF00">**document ID**</span>—and you partition the database by the document ID
+
+![](/img/post/ddia/6-4.png)
+
+
+However, reading from a document-partitioned index requires care: unless you have done something special with the document IDs, there is no reason why all the cars with a particular color or a particular make would be in the same partition. In Figure 6-4, red cars appear in both partition 0 and partition 1. Thus, <span style="color:purple">if you want to search for red cars, you need to send the query to all partitions, and combine all the results you get back</span>
+
+
+querying a partitioned database is sometimes known as <span style="background-color:#FFFF00">**scatter/gather**</span>, and it can make read queries on secondary indexes quite expensive.  Even if you query the partitions in parallel, scatter/gather is prone to tail latency amplification. Q<span style="background-color:#FFFF00">**uerying partition database是expensive and latency**</span>
+
+
+<span style="color:red">it is widely used</span>: MongoDB, Riak, Cassandra, Elasticsearch, SolrCloud, and VoltDB all use document-partitioned secondary indexes
+
+
+#### Partitioning Secondary Indexes by Term
+
+Rather than each partition having its own secondary index (a local index), we can construct a global index that covers data in all partitions. 不能只存一个node, <span style="background-color:#FFFF00">**global index 必须也是partitioned, can be partitioned differently from the primary key index**</span>
+
+![](/img/post/ddia/6-5.png)
+
+letter a-r 是partition 0, letter s-z 是 partition 1. called term-partitioned, because the term we’re looking for <span style="background-color:#FFFF00">**determines the partition of the index**</span>
+
+<span style="background-color:#FFFF00">**Partitioning by the term itself can be useful for range scans**</span> (e.g., on a numeric property, such as the asking price of the car), whereas <span style="background-color:#FFFF00">**partitioning on a hash of the term gives a more even distribution of load**</span>. <span style="background-color:#FFFF00">**partition by term itself 用于range scans, partition on hash 给一个更even distribution of load**</span>
+
+<span style="background-color:#FFFF00">**Advantage**</span>:  over a document-partitioned, <span style="background-color:#FFFF00">**make reads more efficient**</span> (rather than doing scatter/gather over all partitions, <span style="color:purple">**a client only needs to make a request to the partition containing the term that it wants**</span>) 
+
+<span style="background-color:#FFFF00">**Downside**</span>: slower and complicated, a write to single document may affect multiple partitions of the index ((every term in the document might be on a different partition, on a different node) <span style="color:red">**因为每个term 可能在不同的partition**</span>
+
+
+In an ideal world, the index would always be up to date, and every document written to the database would immediately be reflected in the index. However, in a term- partitioned index, that <span style="background-color:#FFFF00">**would require a distributed transaction across all partitions affected by a write**</span>, which is not supported in all databases 
+
+
+<span style="background-color:#FFFF00">** updates to global secondary indexes are often asynchronous**</span>
+
+#### Rebalancing Partitions
+
+Over time, things change in a database:
+
+- The query throughput increases, so you want to add more CPUs to handle the load.
+- The dataset size increases, so you want to add more disks and RAM to store it.
+- A machine fails, and other machines need to take over the failed machine’s responsibilities
+
+<span style="background-color:#FFFF00">**moving load from one node in the cluster to another is called rebalancing**</span>
+
+rebalancing 需要 meet some minimum requirements:
+
+- After rebalancing, the load (data storage, read and write requests) should be shared fairly between the nodes in the cluster. <span style="background-color:#FFFF00">**load需要平均分配**</span>
+- While rebalancing is happening, the database should continue accepting reads and writes. <span style="background-color:#FFFF00">**当rebalance发生, database 需要接受reads和writes**</span>
+- No more data than necessary should be moved between nodes, to make rebalancing fast and to minimize the network and disk I/O load. <span style="background-color:#FFFF00">**只move necessary data，不多move**</span>
+
+#### Strategies for Rebalancing
+
+**How not to do it: hash mod N**
+
+为什么不用 hash(key) mode 10 return a number between 0 and 9 因为number of nodes N changes, most of key 需要move from one node to another. 
+
+
+**Fixed number of partitions**
+
+![](/img/post/ddia/6-6.png)
+
+If a node is added to the cluster, the new node can steal a few partitions from
+every existing node until partitions are fairly distributed once again. the same happens in reverse
+
+The only thing that changes is the assignment of partitions to nodes.<span style="background-color:#FFFF00">** This change of assignment is not immediate**</span>— it takes some time to transfer a large amount of data over the network. 
+
+the number of partitions is usually fixed when the database is first set up and not changed afterward. 
+
+Choosing the right number of partitions is difficult if the total size of the dataset is highly variable (<span style="background-color:#FFFF00">**选择对的partition 数是很困难的如果total size of the dataset 是highly variable**</span>) Since each partition contains a fixed fraction of the total data, the size of each partition grows proportionally to the total amount of data in the cluster. If partitions are very large, rebalancing and recovery from node failures become expensive. But if partitions are too small, they incur too much overhead. 如<span style="background-color:#FFFF00">**果partition 太大, rebalance and recovery from node failure 是非常expensive, 如果partition 太小， incur too much overhead**</span>. "just right,” neither too big nor too small, which can be hard to achieve if the number of partitions is fixed but the dataset size varies.
+
+
+#### Dynamic partitioning
+
+- if you got the boundaries wrong, you could end up with all of the data in one partition and all of the other partitions empty. Reconfiguring the partition boundaries manually would be very tedious
+  - For that reason, key range–partitioned databases such as HBase and RethinkDB create partitions dynamically
+- When a partition grows to exceed a configured size (on **HBase**, the default is 10 GB), it is split into two partitions so that approximately half of the data ends up on each side of the split <span style="color:purple">**超过configured size, 自动split成两个partitions **</span>。
+- 同理，如果lots of data deleted, a partition shrinks below some threshold, it can be merged with an adjacent partition 
+- 每个partition assigned to one node, and each node 可以handle 多个partitions. After a large partition has been split, <span style="color:red">**one of its two halves can be transferred to another node in order to balance the load**</span>. In the case of HBase, the transfer of partition files happens through <span style="background-color:#FFFF00">**HDFS, the underlying distributed filesystem**</span>
+- Advantage: the number of partitions adapts to the total data volume

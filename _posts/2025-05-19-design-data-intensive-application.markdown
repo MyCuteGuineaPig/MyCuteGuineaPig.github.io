@@ -510,4 +510,85 @@ Choosing the right number of partitions is difficult if the total size of the da
 - When a partition grows to exceed a configured size (on **HBase**, the default is 10 GB), it is split into two partitions so that approximately half of the data ends up on each side of the split <span style="color:purple">**超过configured size, 自动split成两个partitions **</span>。
 - 同理，如果lots of data deleted, a partition shrinks below some threshold, it can be merged with an adjacent partition 
 - 每个partition assigned to one node, and each node 可以handle 多个partitions. After a large partition has been split, <span style="color:red">**one of its two halves can be transferred to another node in order to balance the load**</span>. In the case of HBase, the transfer of partition files happens through <span style="background-color:#FFFF00">**HDFS, the underlying distributed filesystem**</span>
-- Advantage: the number of partitions adapts to the total data volume
+- <span style="background-color:#FFFF00">**Advantage: the number of partitions adapts to the total data volume**</span>
+  - If there is only a small amount of data, a small number of parti‐
+tions is sufficient, so overheads are small; if there is a huge amount of data, the size of each individual partition is limited to a configurable maximum
+- empty database start with single partition. 因为没有priori information to draw boundary
+  - until it hits the point at which the first partition is split—all writes have to be processed by a single node while the other nodes sit idle
+  - To mitigate this issue, **HBase** and **MongoDB** allow an initial set of partitions to be configured on an empty database (this is called <span style="background-color:#FFFF00">**pre-splitting 有一个初始的partition**</span>). In the case of key-range partitioning, <span style="color:purple">pre-splitting requires that you already know what the key distribution is going to look like</span>
+- <span style="background-color:#FFFF00">**适用于 key range–partitioned data, 和 hash-partitioned data**</span>
+
+
+#### Partitioning proportionally to nodes
+
+With <span style="background-color:#FFFF00">**dynamic partitioning**</span>, the number of partitions is proportional to the size of the dataset, since the splitting and merging processes keep the size of each partition <span style="color:red">between some fixed minimum and maximum</span>.  On the other hand, with <span style="background-color:#FFFF00">**a fixed number of partitions**</span>, the size of each partition is proportional to the size of the dataset. Inboth of these cases, the number of partitions is independent of the number of nodes. (<span style="background-color:#FFFF00">**两种情况，number of partitions 都独立于number of nodes**</span>)
+
+
+A third option, used by **Cassandra** and **Ketama**, is to make the number of partitions proportional to the number of nodes—in other words, to have a fixed number of partitions per node  (<span style="background-color:#FFFF00">**让partition数量与node 成比例**</span>) The size of each partition grows proportionally to the dataset size while the number of nodes remains unchanged, but when you increase the number of nodes, the partitions become smaller again. <span style="background-color:#FFFF00">**当dataset size增加，partition 含有数据增加，当增加number nodes, -> partition 数量减少**</span>。 Since a larger data volume generally <span style="background-color:#FFFF00">**requires a larger number of nodes **</span>to store, this approach also <span style="background-color:#FFFF00">**keeps the size of each partition fairly stable**</span>
+
+
+当a new node join the cluster, randomly choose a fixed number of exisiting partitions to split, 之后take ownership of one half of each of those split partitions while leave the other half of each partition in place.  <span style="color:red">**The randomization can produce unfair splits**</span>, but when averaged over a larger number of partitions, the new node ends up taking a fair share of the load from the existing nodes. Cassandra 3.0 introduced an alternative rebalancing algorithm that avoids unfair splits 新的node 进来会有unfair spilt, Cassandra 3,0 介入解决了unfair split
+
+
+#### Operations: Automatic or Manual Rebalancing
+
+Fully manual: the assignment of partitions to nodes is explicitly con‐
+figured by an administrator, and only changes when the administrator explicitly
+reconfigures it. 
+
+For example, Couchbase, Riak, and Voldemort generate a suggested partition assignment automatically, but require an administrator to commit it before it takes effect.
+
+
+Fully automated rebalancing
+
+- <span style="background-color:#FFFF00">**convenient, less operational work for normal maintenance**</span>. 
+- 但是不可预测. Rebalancing 是 expensive operation, 因为需要rerouting requests and moving a large amount of data from one node to another. 
+  - 如果不是done carefully, overload the network or the nodes, and harm perforamnce of other request while rebalancing in process
+- can be <span style="background-color:#FFFF00">**dangerous in combination with automatic failure detection**</span>. 比如 one node is overloaded and is temporarily slow to respond to requests. The other nodes conclude that the overloaded node is dead, and automatically rebalance the cluster to move load away from it -> <span style="background-color:#FFFF00">**puts additional load on the overloaded node**</span>, other nodes, and the <span style="background-color:#FFFF00">**network—making the situation worse and potentially causing a cascading failure**</span>
+- can be a good thing to have a human in the loop for rebalancing. It’s slower than a fully automatic process, but it can help prevent operational surprises
+
+
+#### Request Routing
+
+比如want to read or write the key, which IP address and port number do I need to connect to. -> a problem called <span style="background-color:#FFFF00">**service discovery**</span>. 任何software that accessiable over a network has this problem 特别是aim for <span style="background-color:#FFFF00">**high availability**</span>. 
+
+on high level, a few different approaches to this problem
+
+- <span style="background-color:#FFFF00">**Allow clients to contact any node**</span> (e.g., via a <span style="background-color:#FFFF00">**round-robin load balancer**</span>). If that <span style="background-color:#FFFF00">**node coincidentally owns the partition to which the request applies**</span>, it can handle the request directly; otherwise, it <span style="color:purple">**forwards the request**</span> to the appropriate node, receives the reply, and passes the reply along to the client.
+- Send all requests <span style="background-color:#FFFF00">**from clients to a routing tier first**</span>, which determines the node that should handle each request and forwards it accordingly. This routing tier does not itself handle any requests; it only acts as a <span style="background-color:#FFFF00">**partition-aware load balancer**</span>. 都先发到routing tier
+- Require that clients be aware of the partitioning and the assignment of partitions to nodes. In this case, <span style="background-color:#FFFF00">**a client can connect directly to the appropriate node**</span>, without any intermediary.
+
+the key problem is: how does the component making the routing decision (which may be one of the nodes, or the routing tier, or the client) learn about changes in the assignment of partitions to nodes? 
+
+it is important that all participants agree— otherwise requests would be sent to the wrong nodes and not handled correctly. There are protocols for achieving consensus in a distributed system, but they are hard to implement correctly
+
+
+![](/img/post/ddia/6-7.png)
+
+
+- Many distributed data systems <span style="background-color:#FFFF00">**rely on a separate coordination service such as Zoo‐ Keeper to keep track of this cluster metadata**</span>
+- Each node registers itself in ZooKeeper, and ZooKeeper maintains the authoritative mapping of partitions to nodes. <span style="background-color:#FFFF00">**每个node 都register iteslf zookeeper maintain data mapping**</span>
+- Whenever a partition changes ownership, or a node is added or removed, ZooKeeper notifies the routing tier so that it can keep its routing information up to date. 当partition, <span style="background-color:#FFFF00">**nodes发生改变 会notify routing tier**</span><span style="color:red"></span>
+  - For example, LinkedIn’s Espresso uses Helix for cluster management (which in turn relies on ZooKeeper), implementing a routing tier as shown in Figure 6-8. HBase, SolrCloud, and Kafka also use ZooKeeper to track partition assignment. MongoDB has a similar architecture, but it relies on its own config server implementation and mongos daemons as the routing tier
+
+![](/img/post/ddia/6-8.png)
+
+
+Cassandra and Riak take a different approach
+
+- <span style="background-color:#FFFF00">**gossip protocol**</span> among the
+nodes to **disseminate any changes in cluster state**. <span style="background-color:#FFFF00">**Requests can be sent to any node request可以发到任何的node**</span>, and that node forwards them to the appropriate node for the requested partition(approach 1 in Figure 6-7). 
+- This model <span style="background-color:#FFFF00">**puts more complexity in the database**</span> nodes but avoids the dependency on an external coordination service such as ZooKeeper
+- **Couchbase** does not rebalance automatically, which simplifies the design. Normally it is configured with a routing tier called <span style="background-color:#FFFF00">**moxi**</span>, which learns about routing changes from the cluster nodes
+- When using a routing tier or when sending requests to a random node, clients still need to <span style="color:red">find the IP addresses to connect to</span>. These are not as fast-changing as the assignment of partitions to nodes, so it is often sufficient to use **DNS** for this purpose
+
+#### Parallel Query Execution
+
+- <span style="background-color:#FFFF00">**massively parallel processing (MPP)**</span> relational database products
+- A typical data warehouse query contains several join, filtering, grouping, and aggregation operations.
+  - The MPP query optimizer breaks this complex query into a number of execution stages and partitions, many of which can be executed in parallel on different nodes of the database cluster. <span style="background-color:#FFFF00">**MPP把query 变成number of execution stages, executed in parallel.**</span>
+  - Queries that involve <span style="background-color:#FFFF00">**scanning over large parts of the dataset particularly benefit from such parallel execution**</span>
+
+## Transactions
+
+

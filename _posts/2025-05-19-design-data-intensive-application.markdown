@@ -592,3 +592,85 @@ nodes to **disseminate any changes in cluster state**. <span style="background-c
 ## Transactions
 
 
+A <span style="background-color:#FFFF00">**transaction**</span> is a way for an application to group several reads and writes together into a logical unit. Conceptually, all the reads and writes in a transaction are executed as one operation: either the entire transaction succeeds (commit) or it fails(abort, rollback). If it fails, the application can safely retry. With transactions, error handling becomes much simpler for an application, because it doesn’t need to worry about partial failure. 一个transcation 要么全部成功，要么全部失败
+
+#### The Meaning of ACID
+
+<span style="background-color:#FFFF00">**Atomicity, Consistency, Isolation, and Dura‐bility**</span>
+
+**Atomicity**： 
+
+- atomic refers to something that cannot be broken down into smaller parts. 
+- if one thread executes an atomic operation, that <span style="background-color:#FFFF00">**means there is no way that another thread could see the half-finished result of the operatio**</span>n. The system can only be in the state it was before the operation or after the operation, not something in between.
+-  <span style="background-color:#FFFF00">**not about concurrency**</span>. not describe what happens if several processes try to access the same data at the same time, because that is covered under the letter I, for isolation 
+-  ACID atomicity <span style="background-color:#FFFF00">**describes what happens if a client wants to make several writes, but a fault occurs after some of the writes have been processed**</span>—for example, a process crashes, a network connection is interrupted, a disk becomes full, or some integrity constraint is violated. <span style="background-color:#FFFF00">**If the writes are grouped together into an atomic transaction, and the transaction cannot be completed (committed) due to a fault 如果writes group together into atomic transaction不能完成因为fault**</span>, then the transaction is aborted and the database must discard or undo any writes it has made so far in that transaction.
+-  Without atomicity, 如果有error ocurrs partway through making 多个chagnes, 不知道which changes taken effect and which haven't. 如果重试，risk making the same change twice, leading to duplicate or incorrect data. 
+   -  <span style="background-color:#FFFF00">**Atomicity simplifies this problem: if a transaction was aborted, the application can be sure that it didn’t change anything, so it can safely be retried**</span>.
+-  The ability to abort a transaction on error and have all writes from that transaction discarded is the defining feature of <span style="color:purple">ACID atomicity</span> <span style="background-color:#FFFF00">**如果有一个错误，全部丢弃
+**</span>
+
+
+**Consistency**
+
+
+• In Chapter 5 we discussed replica consistency and the issue of eventual consistency that arises in asynchronously replicated systems (see “Problems with Replication Lag” on page 161).
+• Consistent hashing is an approach to partitioning that some systems use for rebalancing (see “Consistent Hashing” on page 204).
+• In the CAP theorem (see Chapter 9), the word consistency is used to mean linearizability
+
+- In the context of ACID, consistency refers to an application-specific notion of the database being in a <span style="background-color:#FFFF00">**“good state“**</span>
+- this idea of consistency depends on the application’s notion of invariants（data）, and it’s the<span style="color:red"> application’s responsibility to define its transactions correctly so that they preserve consistency</span>. This is not something that the database can guarantee: if you write bad data that violates your invariants, the database can’t stop you (some 可以被检查，比如foreign key constraint or uniqueness constraint)
+- <span style="background-color:#FFFF00">**Atomicity, isolation, and durability are properties of the database, whereas consistency (in the ACID sense) is a property of the application**</span>
+
+
+**Isolation**
+
+- accessing the same database records, 可能有concurrency problems
+- Isolation in the sense of ACID means that <span style="background-color:#FFFF00">**concurrently executing transactions are isolated from each other 同时的statement是相互独立的**</span>。 cannot step on each other’s toes
+  - The classic database textbooks formalize isolation as <span style="color:red">**serializability**</span>, which means that each transaction can pretend that it is the only transaction running on the entire database (<span style="background-color:#FFFF00">每个transaction 都假设是only transaction running on entire database</span>)
+  - The database ensures that when the transactions have committed, the result is the same as if they had run serially (one after another), even though in reality they may have run concurrently <span style="background-color:#FFFF00">**数据库确保transaction committed, result是一样的就像run serially**</span>
+- in practice, serializable isolation is rarely used, because it carries a performance penalty. <span style="background-color:#FFFF00">**实际上serializable isolation很少被用，因为performance原因**</span>
+- Oracle implement called <span style="background-color:#FFFF00">**snapshot isolatio**</span>n, eaker guarantee than serializability.
+
+**Durability**
+
+- Durability is the promise that once a transaction has committed successfully, any data it has written will not be forgotten, even if there is a hardware fault or the database crashes (<span style="background-color:#FFFF00">**Durability 保证当transaction commited, 任何data都不会被丢失, 即使database crash**</span>)
+- In a single-node database, durability typically means that the data has been written to nonvolatile storage such as a <span style="color:purple">**hard drive or SSD**</span>
+  - 通常invole write-ahead log or similar, <span style="color:red">which allows recovery in the event that the data structures on disk are corrupted</span>.
+- In a replicated database, **durability may mean that the data has been successfully copied to some number of nodes 表示data 成功被复制到一些node**. 为了提供durability guarantee, <span style="background-color:#FFFF00">**a database必须wait until these writes or replications are complete**</span> before a transaction as succesfully committed.
+- <span style="background-color:#FFFF00">**perfect durability does not exist**</span>: if all your hard disks and all your backups are destroyed at the same time, there’s obviously nothing your database can do to save you
+
+
+<span style="background-color:#FFFF00">**The truth is, nothing is perfect**</span>. In practice, there is no one technique that can provide absolute guarantees. various risk-reduction techniques, including writing to disk, replicating to remote machines, and backups—and they can and should be used together. <span style="background-color:#FFFF00">** 不可能提供absolute的保证，只能尽可能提供risk-reduction techniques 包括writing to disk, 复制到remote machine 和back-up**</span>
+
+比如
+
+- if write to disk and machine dies, 数据没有丢失 但是inaccessible, either fix machine or transfer the disk to another machine
+- A correlated fault: a power outage or a bug that crashes every node on partiular input - can knock out all replicas at once
+- asynchronously replicated system, recent writes may be lost when the leader becomes unavailable
+- When the power is suddenly cut, SSD show sometimes violate the guarantee that they provide: even `fsync` (write all modified data for a given file to the disk) isn't guaranteed to work correctly.
+- subtle interactions between storage enigne and filesystem implementation can lead to bugs that are hard to track down.
+- Data on disk become corrupted wihtout being detected.  如果data corrupted for some time, replicas and recent backups 可能也corrupted
+- One study of SSDs found that between 30% and 80% of drives develop at least one bad block during the first four years of operation. <span style="color:red">Magnetic hard drives have a lower rate of bad sectors, but a higher rate of complete failure than SSD</span>
+- If an SSD is disconnected from power, it can start losing data within a few weeks, depending on the temperature
+
+
+
+#### Single-Object and Multi-Object Operations
+
+**Atomicity**
+
+If an error occurs halfway through a sequence of writes, the transaction should be aborted, and the writes made up to that point should be discarded. In other words, <span style="background-color:#FFFF00">**the database saves you from having to worry about partial failure**</span>, by giving an all-or-nothing guarantee.
+
+**Isolation**
+
+<span style="background-color:#FFFF00">**Concurrently running transactions shouldn’t interfere with each other**</span>. For example, if one transaction makes several writes, then another transaction should see either all or none of those writes, but not some subset.
+
+下图 illustrates the need for atomicity: if an error occurs somewhere over the course of the transaction, the contents of the mailbox and the unread counter might become out of sync. In an atomic transaction, <span style="background-color:#FFFF00">**if the update to the counter fails, the transaction is aborted and the inserted email is rolled back**</span>.
+
+![](/img/post/ddia/7-3.png)
+
+
+Multi-object transactions <span style="background-color:#FFFF00">**require some way of determining which read and write operations belong to the same transaction**</span>. In relational database, typically done based on the client’s TCP connection to the database server. on any particular connection, everything between a `BEGIN TRANSACTION` and a `COMMIT` statement is considered to be part of the same transaction  (This is not ideal. If the TCP connection is interrupted, the transaction must be aborted. If the interruption happens after the client has requested a commit but before the server acknowledges that the commit happened, the client doesn’t know whether the transaction was committed or not. To solve this issue, a transaction manager can group operations by a unique transaction identifier that is not bound to a particular TCP connection)
+
+
+对于nonrelational database, don't have such a way of grouping operations together. Even if there is a multi-object API. that doesn’t necessarily mean it has transaction semantics. Command 可能成功for some keys and fail for others, leaving database in partially updated state. 

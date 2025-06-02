@@ -674,3 +674,52 @@ Multi-object transactions <span style="background-color:#FFFF00">**require some 
 
 
 对于nonrelational database, don't have such a way of grouping operations together. Even if there is a multi-object API. that doesn’t necessarily mean it has transaction semantics. Command 可能成功for some keys and fail for others, leaving database in partially updated state. 
+
+
+**Single-object writes**
+
+storage engines almost universally aim to provide atomicity and isolation on the level of a single object on one node.
+
+
+**Handling errors and aborts**
+
+A key feature of a transaction is that it can be aborted and safely retried if an error occurred. If the database is in danger of violating its guarantee of atomicity, isolation, or durability, <span style="background-color:#FFFF00">**it would rather abandon the transaction entirely than allow it to remain half-finished**</span>.
+
+Not all systems follow that philosophy, 比如<span style="background-color:#FFFF00">**leaderless replication**</span> - will do as much as it can, and if it runs into error, won't undo something it has already done. - <span style="background-color:#FFFF00">**it's application's responsibility to recover from errors**</span>
+
+retrying an aborted transaction is a simple and effective error handling 但不是perfect 
+
+- 如果transaction succeed, but network failed while server tried to ack successful commit to client, retrying the transaction cuase it to be performed twice - unless you have application level dedup mechansim
+- If error due to overload, retrying transaction make problem worse. To avoid such feedback cycles, limit the number of retries, use exponential backoffs, and handle overload-related errors differently from other errors
+- <span style="background-color:#FFFF00">**only worth retrying after transient errors (比如deadlock, isolation violation, temporary network interruptions, and failover). After a permanent error, a retry pointless**</span>
+- If the transaction also has side effects outside of the database, those side effects may happen even if the transaction is aborted. 比如发送邮件，不想send email again everyt time you retry the transaction
+- If client process fails while retrying, any data it was trying to write to the database is lost
+
+#### Weak Isolation Levels
+
+If two transactions don’t touch the same data, they can safely be run in parallel, because neither depends on the other. 
+
+因为concurrency issue 很难reproduce, <span style="background-color:#FFFF00">**databases have long tried to hide concurrency issues from application developers by providing transaction isolation**</span>.
+
+In practice, isolation is unfortunately not that simple. <span style="color:red">**Serializable isolation has a performance cost**</span>, and many databases don’t want to pay that price. It’s therefore common for systems to use <span style="background-color:#FFFF00">**weaker levels of isolation**</span>, which protect against some concurrency issues, but not all.
+
+#### Read Committed
+
+makes two guarantees
+
+- When reading from the database, you will only see data that has been committed(<span style="background-color:#FFFF00">**no dirty reads**</span>).
+- When writing to the database, you will only overwrite data that has been committed (<span style="background-color:#FFFF00">**no dirty writes**</span>).
+
+**No dirty reads**
+
+Imagine a transaction has written some data to the database, but the transaction has not yet committed or aborted. Can another transaction see that uncommitted data? If yes, that is called a <span style="color:purple">**dirty read**</span>
+
+<span style="background-color:#FFFF00">**Transaction running at read committed isolation level must prevent dirty reads**</span>. Any writes by a transaction only become visible to others when that transaction commits.
+
+![](/img/post/ddia/7-4.png)
+
+比如上图 where user 1 has set x = 3, but user 2’s get x still returns the old value, 2, while user 1 has not yet committed
+
+
+- If a transaction needs to update several objects, a dirty read means that another transaction may see some of the updates but not others. <span style="color:red">Seeing the database in a partially updated state is confusing to users and may cause other transactions to take incorrect decisions</span>.
+- If a transaction aborts, any writes it has made need to be rolled back. <span style="background-color:#FFFF00">**If the database allows dirty reads, that means a transaction may see data that is later rolled back**</span>—i.e., which is never actually committed to the database. Reasoning about the consequences quickly becomes mind-bending.

@@ -723,3 +723,80 @@ Imagine a transaction has written some data to the database, but the transaction
 
 - If a transaction needs to update several objects, a dirty read means that another transaction may see some of the updates but not others. <span style="color:red">Seeing the database in a partially updated state is confusing to users and may cause other transactions to take incorrect decisions</span>.
 - If a transaction aborts, any writes it has made need to be rolled back. <span style="background-color:#FFFF00">**If the database allows dirty reads, that means a transaction may see data that is later rolled back**</span>—i.e., which is never actually committed to the database. Reasoning about the consequences quickly becomes mind-bending.
+
+
+**No dirty writes**
+
+if the earlier write is part of a transaction that has not yet committed, so the later write overwrites an uncommitted value? This is called a <span style="background-color:#FFFF00">**dirty write**</span>. <span style="background-color:#FFFF00">**Transactions running at the read committed isolation level must prevent dirty writes**</span>, usually by delaying the second write until the first write’s transaction has committed or aborted.
+
+
+![](/img/post/ddia/7-5.png)
+
+
+**Implementing read committed**
+
+- <span style="background-color:#FFFF00">**Read committed**</span> is a very popular **isolation level**. It is the default setting in Oracle 11g, PostgreSQL, SQL Server 2012, MemSQL, and many other databases
+- prevent dirty writes by using row-level locks: 当想要modify a particular object,<span style="background-color:#FFFF00">** 必须acquire a lock. 必须hold the lock 知道transaction completed or aborted**</span>. 
+  - <span style="background-color:#FFFF00">**only one transaction can hold the lock for any given object**</span>; if another transaction wants to write to the same object, 必须wait until the first transaction is committed or aborted bfore acquire the lock
+  - <span style="background-color:#FFFF00">**This locking is done automatically by databases in read committed mode (or stronger isolation levels)**</span>
+- How to prevent direty reads? use the same lock, require any transaction that wants to read an object to acquire lock and release it after reading. <span style="background-color:#FFFF00">**可以确保read couldn't happen while an object an dirty, uncommitted value. (因为 lock held by the write transaction)**</span>
+  - 这个方法并不work well. one long-running write transaction can force many read-only transactions to wait until the long-running transaction has completed (一个长的write 可以force 许多read 等待)
+  - This <span style="color:red">**harms**</span> the response time of r<span style="color:red">ead-only transactions and is bad for operability</span>： a slowdown in one part of an application can have a knock-on effect in a completely different part of the application, due to waiting for locks
+
+
+For above reason, 需要database prevent dirty reads using the approach as belwo 
+
+![](/img/post/ddia/7-4.png)
+
+
+For every object written, <span style="background-color:#FFFF00">**database 记住old committed value and new value set by transaction that currently holds the write lock**</span>. While the transaction is ongoing, any other transactions that read the object are simply given the old value. Only when the new value is committed do transactions switch over to reading the new value. <span style="background-color:#FFFF00">**记住两个值，一个old 一个新的还没commited的值，当read时候，给old值，直到value committed, switch to new value**</span>
+
+
+#### Snapshot Isolation and Repeatable Read
+
+Read committed isolation, does
+
+- it allows aborts (required for atomicity), it prevents reading the incomplete results of transactions
+- it prevents concurrent writes from getting intermingled. 
+
+还有ways which you can have concurrency bugs when using this isolation level. 比如a problem can occur with read committed 
+
+![](/img/post/ddia/7-6.png)
+
+
+比如alice transfer account balance 从一个账户到另一个 (500 each in two accounts)，如果transfer time和她look at account balance time重合，可能看到账户里少了100（1000 -> 900）. This anomaly is called a **nonrepeatable read** or <span style="background-color:#FFFF00">**read skew**</span>. <span style="background-color:#FFFF00">**Read skew is considered acceptable under read committed isolation (read skew是被允许的在committed isolation)**</span>
+
+
+some situations cannot tolerate such temporary inconsistency:
+
+- Backups: take a back 需要make a copy of entire database, may take hours on a large database. During the time that backup is running, writes will made to the database. End with 一些backup containing old version of data, other parts containing new version. 如果需要store from backup, inconsistencies become permanent. 
+- Analytic queries and integrity checks. run a query that scans over large parts of database. These queries <span style="background-color:#FFFF00">**很有可能return nonsensical results if they observe parts of database at different points in time**</span>
+
+Snapshot isolation 最常见的solution to this problem. Each transaction <span style="background-color:#FFFF00">reads from a consistent snapshot of the database</span>, transaction sees all the data that was committed in the database at the start of the transaction. Even if the data 随后改变, each transaction sees only the old data from that particular point in time. 
+
+Snapshot isolation is a popular feature: it is supported by PostgreSQL, MySQL with the InnoDB storage engine, Oracle, SQL Server, and others
+
+**Implementing snapshot isolation**
+
+<span style="background-color:#FFFF00">Implementation of snapshot isolation 通常使用write lock to prevent dirty writes</span>.  a transaction that makes a write can block the progress of another transaction that writes to the same object. 但是read 不需要任何block, a key principle of snapshot isolation is <span style="background-color:#FFFF00">**readers never block writers, and writers never block readers**</span>. allows a database to handle long-running read queries on a consistent snapshot at the same time as processing writes normally, without any lock contention between the two
+
+<span style="background-color:#FFFF00">**Database 必须keep serveral committed version**</span>, because various in-progress transaction may need to see the state of database at different points in time. 因为maintain several version, <span style="background-color:#FFFF00">**叫做multi-version concurrency control (MVCC)**</span>
+
+如果只提供read committed isolation 而不是snapshot isolation, sufficient to keep two version: committed version and the overwritten-but-not-yet-committed version. storage engines that support snapshot isolation typically use **MVCC** for their read committed isolation level as well. <span style="background-color:#FFFF00">**A typical approach is that read committed uses a separate snapshot for each query, while snapshot isolation uses the same snapshot for an entire transaction. Read committed 是不同的snapshot for each query, 但是snapshot isolation use the same snapshot**</span>
+
+![](/img/post/ddia/7-7.png)
+
+上面解释how MVCC-based snapshot isolation implemented in Post-greSQL. When a transaction is started, it is given a unique, always-increasing transaction ID (txid). Whenever a transaction writes anything to the database, the data it writes is tagged with the transaction ID of the writer. (<span style="background-color:#FFFF00">**当transaction开始，给一个unique transaction ID, 当transaction 写进DB, tagged with writer的transaction id**</span>)
+
+
+Each row in a table has a `created_by` field, containing the ID of the transaction that inserted this row into the table. Moreover, each row has a `deleted_by` field, which is initially empty. If a transaction deletes a row, the row isn’t actually deleted from the database, but it is marked for deletion by setting the `deleted_by` field to the ID of the transaction that requested the deletion. 上图的balance 减100 分成两步，delete account balance as 500, a created balance as 400
+
+
+**Visibility rules for observing a consistent snapshot**
+
+When a transaction reads from the database, transaction IDs are used to decide which objects it can see and which are invisible. defining visibility rules, database can present a consistent snapshot of the database to the application: 
+
+- At the start of each transaction, the database makes a list of all the other transactions that are in progress (not yet committed or aborted) at that time. Any writes that those transactions have made are ignored, even if the transactions subsequently commit.
+- Any writes made by aborted transactions are ignored.
+- Any writes made by transactions with a later transaction ID (i.e., which started after the current transaction started) are ignored, regardless of whether those transactions have committed.
+- All other writes are visible to the application’s queries.

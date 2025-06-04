@@ -794,9 +794,40 @@ Each row in a table has a `created_by` field, containing the ID of the transacti
 
 **Visibility rules for observing a consistent snapshot**
 
-When a transaction reads from the database, transaction IDs are used to decide which objects it can see and which are invisible. defining visibility rules, database can present a consistent snapshot of the database to the application: 
+When a transaction reads from the database, transaction IDs are used to decide which objects it can see and which are invisible. defining visibility rules, database can present a consistent snapshot of the database to the application:  (当read transaction, visibility rule defined如下)
 
-- At the start of each transaction, the database makes a list of all the other transactions that are in progress (not yet committed or aborted) at that time. Any writes that those transactions have made are ignored, even if the transactions subsequently commit.
-- Any writes made by aborted transactions are ignored.
-- Any writes made by transactions with a later transaction ID (i.e., which started after the current transaction started) are ignored, regardless of whether those transactions have committed.
+- At the start of each transaction, the database makes a list of all the other transactions that are in progress (not yet committed or aborted) at that time. Any writes that those transactions have made are ignored, even if the transactions subsequently commit. <span style="color:red">**一个transaction 之前的所有query都被忽略**</span>
+- Any writes made by aborted transactions are ignored. **所有被abort的transaction被ignored**<span style="color:red"></span>
+- Any writes made by transactions with a later transaction ID (i.e., which started after the current transaction started) are ignored, regardless of whether those transactions have committed. （<span style="background-color:#FFFF00">**所有在read 之后的write都被忽略，不管是否committed 成功**</span>）
 - All other writes are visible to the application’s queries.
+
+
+<span style="background-color:#FFFF00">**an object is visible**</span> if both of the following conditions are true:
+
+- At the time when the reader’s transaction started, the transaction that created the object had already committed. <span style="background-color:#FFFF00">**当read 时候,write已经被committed**</span>
+- The object is not marked for deletion, or if it is, the transaction that requested deletion had not yet committed at the time when the reader’s transaction started. <span style="background-color:#FFFF00">**read时候 deletion object not committed**</span>
+
+By never updating values in place but instead creating a new version every time a value is changed, <span style="color:red">the database can provide a consistent snapshot while incurring only a small overhead</span>.
+
+
+**Indexes and snapshot isolation**
+
+multi-version database: 
+
+- One option is to have the index simply point to all versions of an object and require an index query to <span style="color:purple">filter out any object versions that are not visible to the current transaction</span>. When <span style="color:purple">garbage collection</span> removes old object versions that are no longer visible to any transaction, the corresponding index entries can also be removed.
+  - PostgreSQL has optimizations for avoiding index updates if different versions of the same object can fit on the same page
+- Another approach is used in CouchDB, Datomic, and LMDB. Although they also use B-trees (see “B-Trees” on page 79), they use an<span style="background-color:#FFFF00">** append-only/copy-on-write variant**</span>that does not overwrite pages of the tree when they are updated, <span style="color:red">**but instead creates a new copy of each modified page**</span>. Parent pages, up to the root of the tree, are copied and updated to point to the new versions of their child pages. Any pages that are not affected by a write do not need to be copied, and <span style="background-color:#FFFF00">**remain immutable**</span>
+  - every write transaction (or batch of transactions) creates a new B-tree root, and a particular root is a consistent snapshot of the database at the point in time when it was created. There is <span style="background-color:#FFFF00">**no need to filter out objects based on transaction IDs because subsequent writes cannot modify an existing B-tree**</span>; they can only create new tree roots. However, <span style="background-color:#FFFF00">**this approach also requires a background process for compaction and garbage collection.**</span>
+
+
+Snapshot isolation is a useful isolation level, especially for read-only transactions. many databases that implement it call it by <span style="color:red">different names</span>. In Oracle it is called **serializable**, and in PostgreSQL and MySQL it is called **repeatable read** (命名不同 因为SQL standard doesn’t have the concept of snapshot isolation,). PostgreSQL and MySQL call their snapshot isolation level repeatable read
+
+
+#### Preventing Lost Updates
+
+The lost update problem can occur if an application reads some value from the database, modifies it, and writes back the modified value (a read-modify-write cycle). <span style="background-color:#FFFF00">**If two transactions do this concurrently**</span>, one of the modifications can be lost, because the second write does not include the first modification. (<span style="color:red">We sometimes say that the later write clobbers the earlier write.</span>) . 比如两个user modify wiki page at the same time
+
+**Atomic write operations**
+
+
+

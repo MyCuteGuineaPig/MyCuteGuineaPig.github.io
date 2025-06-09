@@ -829,5 +829,157 @@ The lost update problem can occur if an application reads some value from the da
 
 **Atomic write operations**
 
+Atomic operations are usually implemented by <span style="background-color:#FFFF00">**taking an exclusive lock on the object when it is read**</span> so that no other transaction can read it until the update has been applied. This technique is sometimes known as <span style="background-color:#FFFF00">**cursor stability**</span>. Another option is to simply force all atomic operations to be executed on a single thread.
+
+Unfortunately, object-relational mapping frameworks make it easy to accidentally write code that performs unsafe read-modify-write cycles instead of using atomic operations provided by the database (虽然更好写，但更容易有bug)
 
 
+**Explicit locking**
+
+如果没有built-in atomic operation, is for application to explicitly lock objects that are going to be updated. <span style="background-color:#FFFF00">**有lock后 Then application 可以执行read-modify-write cycle, 如果any other transaction tries to concurrently read the same object, 必须forced to wait until the first read-modify-write cycle has completed**</span>
+
+
+**Automatically detecting lost updates**
+
+An alternative is to allow them to execute in parallel and, if the transaction manager detects a lost update, abort the transaction and force it to retry its read-modify-write cycle
+
+advantage: perform this check efficiently in conjunction with snapshot isolation.
+
+PostgreSQL’s repeatable read, Oracle’s serializable, and SQL Server’s snapshot isolation levels automatically detect when a lost update has occurred and abort the offending transaction. However, MySQL/InnoDB’s repeatable read does not detect lost updates (Postgre, Oracle 有自动检测lost update, MySQL和innoDB 没有自动检测). MySQL does not provide snapshot isolation under this definition
+
+**Compare-and-set**
+
+<span style="background-color:#FFFF00">**write时候 compare the value with last read, 如果不match, 不update, read-modify-write cycle must be retried (concurrent updating)**</span>
+
+
+**Conflict resolution and replication**
+
+对于multi-leader or leaderless replication, <span style="background-color:#FFFF00">**允许concurrent writes to create sveral conflicting versions and replicate async, then use application code or special data structure to resolve and merge these versions **</span>
+
+the last write wins (LWW) conflict resolution method is prone to lost updates
+
+
+#### Write Skew and Phantoms
+
+write skew- It is neither a dirty write nor a lost update （因为是concurrent write）.write skew as a generalization of the lost update problem. write skew 的发生是因为two transaction read the same objects, and then update some of those objects
+
+
+With write skew, our options are more restricted:
+
+-  Atomic single-object operations don’t help, as multiple objects are involved.
+- The automatic detection of lost updates that you find in some implementations of snapshot isolation unfortunately doesn’t help either: write skew is not auto‐ matically detected
+- If you can’t use a serializable isolation level, the second-best option in this case is probably to explicitly lock the rows that the transaction depends on. 
+
+<span style="background-color:#FFFF00">**snapshot isolation does not prevent another user from concurrently inserting a conflicting meeting**</span>
+
+
+比如在write时候一直read,当write之后，read结果发生改变。This effect, where a write in one transaction changes the result of a search query in another transaction, is called a <span style="background-color:#FFFF00">**phantom (一个werite 影响另一个search query结果)**</span>。 Snapshot isolation avoids phantoms in <span style="background-color:#FFFF00">**read-only queries**</span>, but in read-write transactions, phantoms can lead to particularly tricky cases of write skew
+
+
+#### Serializable Isolation
+
+Serializable isolation is usually regarded as the strongest isolation level. It guarantees that even though transactions may execute in parallel, the end result is the same as if they had executed one at a time, serially, without any concurrency. （<span style="background-color:#FFFF00">**即使可能concurrent, 但是结果和execute one at a time是一样的**</span>）
+
+
+ three techniques： 
+
+ - Literally executing transactions in a serial order 
+- Two-phase locking (see “Two-Phase Locking (2PL)” on page 257), which for several decades was the only viable option
+- Optimistic concurrency control techniques such as serializable snapshot isolation
+
+
+With stored procedures and in-memory data, executing all transactions on a single thread becomes feasible. As they <span style="color:red">**don’t need to wait for I/O and they avoid the overhead of other concurrency control mechanisms**</span>, they can achieve quite good throughput on a single thread.
+
+
+<span style="background-color:#FFFF00">**Whether transactions can be single-partition depends very much on the structure of the data used by the application**</span>
+
+**Partitioning**
+
+
+In order to scale to multiple CPU cores, and multiple nodes, you can potentially partition your data. each partition can have its own transaction processing thread running independently from the others. In this case, you can give each CPU core its own partition, which allows your transaction throughput to scale linearly with the number of CPU cores
+
+
+The stored procedure needs to be performed in lock-step across all partitions to ensure serializability across the whole system.
+
+
+**Summary of serial execution**
+
+- Every transaction must be small and fast, because it takes only one slow transaction to stall all transaction processing.
+- It is limited to use cases where the active dataset can fit in memory. Rarely accessed data could potentially be moved to disk, but if it needed to be accessed in a single-threaded transaction, the system would get very slow.x
+- Write throughput must be low enough to be handled on a single CPU core, or else transactions need to be partitioned without requiring cross-partition coordination.
+- Cross-partition transactions are possible, but there is a hard limit to the extent to which they can be used.
+
+#### Two-Phase Locking (2PL)
+
+
+- 只要没有write，可以多个concurrent read. <span style="background-color:#FFFF00">**但只要有想write an object, exclusive access是需要的**</span>
+  -  If transaction A has read an object and transaction B wants to write to that object, B must wait until A commits or aborts before it can continue. (This ensures that B can’t change the object unexpectedly behind A’s back.) <span style="color:purple">写在read之后完成</span>
+  - If transaction A has written an object and transaction B wants to read that object, B must wait until A commits or aborts before it can continue。<span style="color:purple">**A 写了一个数据，B read需要A commit or abort**</span>
+- <span style="background-color:#FFFF00">**In 2PL, writers don’t just block other writers; they also block readers and vice versa**</span>.
+  - 但snapshot isolation, reader不会block writers, writer never block read
+  - 2 PL protects against all the race conditions, including <span style="background-color:#FFFF00">**lost updates and write skew**</span>
+
+
+The lock can either be in <span style="background-color:#FFFF00">**shared mode**</span> or in <span style="background-color:#FFFF00">**exclusive mode**</span>
+
+
+
+- <span style="background-color:#FFFF00">如果想read object, 必须acquire lock in shared mode. 多个transaction可以同时有shared mode 但如果另一个transaction 已经有exclusive lock, transaction 必须wait </span>
+- <span style="background-color:#FFFF00">**如果想write, 必须acquire the lock in exclusive mode. 不能同时有多个transaction 是exclusive mode, 如果有existing lock, transaction必须wait**</span>
+• <span style="background-color:#FFFF00">**如果先read, 再write, 可以upgrade shared lock to exclusive lock. Update works same as getting an eclusive **</span>
+- 再拥有lock后，可以hold the lock until transaction结束. Two phase：第一个phase是 when locks are acquire, 第二个是when all the locks are released
+
+<span style="color:purple">**可能会有deadlock, database detect自动between transaction, 然后abort one of transaction。Abort transaction需要retry**</span>
+
+performance downside是performance. transaction throughput and response times of queries are significantly worse under two-phase locking than under weak isolation. <span style="background-color:#FFFF00">**partly due to the overhead of acquiring and releasing all those locks, but more importantly due to reduced concurrency**</span>. 还有deadlock问题，被aborted, 就需要retry, do the work again
+
+
+**Predicate locks**
+
+- 如果transaction A想要read oject, 必须acquire a **shared-mode predicate lock**. 如果transaction B has an exclusive lock on any object matching conditions. A 必须等B release before acquire the lock
+- 如果transaction A想要insert, update, delete. 必须check whether either old or new value matches any existing predicate lock. 如果有predict lock held by transaction B, A必须等待直到 B committed or aborted
+- <span style="color:red">**key idea here is that a predicate lock applies even to objects that do not yet exist in the database, but which might be added in the future **</span>
+- predicate locks <span style="color:red">**do not perform well**</span>: if there are many locks by active transactions, **checking for matching locks becomes time-consuming**
+
+**index-range locking**
+
+- simplified approximation of predicate locking
+- <span style="color:red">**provided protection against phantoms and write skew**</span>
+- lower overhead, good compromise
+
+#### Serializable Snapshot Isolation (SSI)
+
+- <span style="background-color:#FFFF00">**full serializability, but has only a small performance penalty compared to snapshot isolation **</span>
+- used both in single-node databases (PostgreSQL since version 9.1) and distributed databases
+- <span style="background-color:#FFFF00">**Serial execution**</span>: it is **essentially equivalent to each transaction having an exclusive lock on the entire database**.
+  - optimistic concurrency control technique
+  - if there is enough spare capacity, and if contention between transactions isnot too high, optimistic concurrency control techniques tend to perform better than pessimistic ones
+
+
+Two-phase locking is a so-called <span style="color:red">**pessimistic**</span> concurrency control mechanism: it is based on the principle that if anything might possibly go wrong (as indicated by a lock held by another transaction), it’s better to wait until the situation is safe again before doing anything
+
+
+#### Detecting writes that affect prior reads
+
+![](/img/post/ddia/7-11.png)
+
+When a transaction writes to the database, it must look in the indexes for any other transactions that have recently read the affected data ; <span style="background-color:#FFFF00">**lock as a tripwire: it simply notifies the transactions that the data they read may no longer be up to date**</span>.
+
+上图 transaction 43 notifies transaction 42 that its prior read is outdated,
+and vice versa. Transaction 42 is first to commit, and it is successful: although transaction 43’s write affected 42, 43 hasn’t yet committed, so the write has not yet taken effect. However, when transaction 43 wants to commit, the conflicting write from 42 has already been committed, so 43 must abort.
+
+
+big advantage of serializable snapshot isolation is that <span style="background-color:#FFFF00">**one transaction doesn’t need to block waiting for locks held by another transaction （一个transaction 不会block waiting for locks held by another transaction**</span>. Like under snapshot isolation, writers don’t block readers, and vice versa. This <span style="color:red">**design principle makes query latency much more predictable and less variable**</span>.
+
+
+The rate of aborts significantly affects the overall performance of SSI. For example, <span style="background-color:#FFFF00">**a transaction that reads and writes data over a long period of time is likely to run into conflicts and abort**</span>, so SSI requires that read-write transactions be fairly short (long-running read-only transactions may be okay). However, SSI is probably less sensitive to slow transactions than two-phase locking or serial execution
+
+
+#### Summary 
+
+- <span style="background-color:#FFFF00">**Dirty reads**</span>: One client reads another client’s writes before they have been committed. The read committed isolation level and stronger levels prevent dirty reads. (<span style="background-color:#FFFF00">**在commit 前读取**</span>)
+- <span style="background-color:#FFFF00">**Dirty writes**</span>： One client overwrites data that another client has written, but not yet committed. Almost all transaction implementations prevent dirty writes. (<span style="color:purple">一个覆写了另一个record</span>)
+- <span style="background-color:#FFFF00">**Read skew (nonrepeatable reads)**</span> A client sees different parts of the database at different points in time (<span style="color:purple">**不同时间看见的不同的数据**</span>). This issue is most commonly prevented with snapshot isolation, which allows a transaction to read from a consistent snapshot at one point in time. It is usually implemented with multi-version concurrency control (MVCC).
+- <span style="background-color:#FFFF00">**Lost updates**</span> Two clients concurrently perform a read-modify-write cycle. One overwrites the other’s write without incorporating its changes, so data is lost <span style="color:purple">**一个覆写了另一个record 造成数据丢失**</span>. Some implementations of snapshot isolation prevent this anomaly automatically, while others require a manual lock (SELECT FOR UPDATE). 
+- <span style="background-color:#FFFF00">**Write skew**</span> A transaction reads something, makes a decision based on the value it saw, and writes the decision to the database. However, by the time the write is made, the premise of the decision is no longer true. Only serializable isolation prevents this anomaly.
+- <span style="background-color:#FFFF00">**Phantom reads**</span> A transaction reads objects that match some search condition. Another client makes a write that affects the results of that search. Snapshot isolation prevents straightforward phantom reads, but phantoms in the context of write skew require special treatment, such as index-range locks.

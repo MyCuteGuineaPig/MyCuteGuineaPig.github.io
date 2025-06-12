@@ -987,3 +987,65 @@ The rate of aborts significantly affects the overall performance of SSI. For exa
 
 ## The Trouble with Distributed Systems
 
+<span style="background-color:#FFFF00">**The difficulty is that partial failures are nondeterministic:**</span>. some parts of the system that are broken in some unpredictable way, even though other parts of the system are working fine
+
+
+If we want to make distributed systems work, we must accept the possibility of partial failure and build fault-tolerance mechanisms into the software. <span style="background-color:#FFFF00">**we need to build a reliable system from unreliable components**</span>
+
+
+If you send a request and expect a response, many things could go wrong (some of which are illustrated in Figure 8-1):
+
+- Your request may have been lost (perhaps someone unplugged a network cable).
+- Your request may be waiting in a queue and will be delivered later (perhaps the network or the recipient is overloaded).
+- The remote node may have failed (perhaps it crashed or it was powered down).
+- The remote node may have temporarily stopped responding (perhaps it is experiencing a long garbage collection pause; see “Process Pauses” on page 295), but it will start responding again later.
+- The remote node may have processed your request, but the response has been lost on the network (perhaps a network switch has been misconfigured).
+- The remote node may have processed your request, but the response has been delayed and will be delivered later (perhaps the network or your own machine is overloaded).
+
+<span style="background-color:#FFFF00">**The usual way of handling this issue is a timeout**</span>. <span style="color:purple">when a timeout occurs, still don’t know whether the remote node got your request or not</span>
+
+![](/img/post/ddia/8-1.png)
+
+
+It may make sense to deliberately trigger network problems and test the system’s response
+
+A load balancer needs to stop sending requests to a node that is dead (i.e., take it out of rotation)
+
+
+#### Timeouts and Unbounded Delays 
+
+A long timeout means <span style="background-color:#FFFF00">**a long wait until a node is declared dead**</span> (and during this time, users may have to wait or see error messages). <span style="background-color:#FFFF00">**A short timeout detects faults faster, but carries a higher risk of incorrectly declaring a node dead**</span> when in fact it has only suffered a temporary slowdown
+
+When a node is declared dead, its responsibilities need to be transferred to other nodes, which places additional load on other nodes and the network. If the system is already struggling with high load, declaring nodes dead prematurely can make the problem worse. <span style="background-color:#FFFF00">**Transferring its load to other nodes can cause a cascading failure**</span>
+
+every packet is either delivered within some time **d**, or it is lost, but delivery never takes longer than d. Furthermore, assume that you can guarantee that a non- failed node always handles a request within some time **r**. In this case, you could guarantee that every successful request receives a response within time 2d + r—and if you don’t receive a response within that time, you know that either the network or the remote node is not working. If this was true, <span style="background-color:#FFFF00">**2d + r**</span> would be a reasonable timeout to use
+
+
+most systems we work with have neither of those guarantees: asynchronous networks <span style="background-color:#FFFF00">**have unbounded delays**</span> (that is, they try to deliver packets as quickly as possible, but there is no upper limit on the time it may take for a packet to arrive
+
+
+#### Network congestion and queueing
+
+When driving a car, travel times on road networks often vary most due to traffic congestion. Similarly, the variability of packet delays on computer networks is most often due to queueing 
+
+
+- 太多发到一个destination. eventually queue fills up. packet dropped -> need to resend 
+- <span style="background-color:#FFFF00">**all CPU cores are currently busy**</span> , incoming request queued by OS until application ready to handle 
+- In virtualized environments, a<span style="color:red"> running operating system is often paused for tens of milliseconds while another virtual machine uses a CPU core</span>. During this time, the VM cannot consume any data from the network, so the incoming data is queued (buffered) by the virtual machine monitor [26], further increasing the variability of network delays.
+- TCP performs flow control in which <span style="color:red">**a node limits its own rate of sending in order to avoid overloading a network link or the receiving node (发送的node自己限流)**</span>. This means additional queueing at the sender before the data even enters the network
+
+
+<span style="background-color:#FFFF00">TCP considers a packet to be lost if it is not acknowledged within some timeout (which is calculated from observed round-trip times), and lost packets are automatically retransmitted (TCP 如果timeout内没有ack, 认为lost, 重新发送lost的 packet，). ->  resulting delay</span>
+
+#### TCP Versus UDP
+
+- <span style="background-color:#FFFF00">**trade-off between reliability and variability of delays**</span>
+- <span style="background-color:#FFFF00">**UDP does not perform flow control and does not retransmit lost packets,it avoids some of the reasons for variable network delays **</span>
+- UDP is a good choice in situations where delayed data is worthless
+  - 比如 VoIP phne call.  isn’t enough time to retransmit a lost packet before its data is due to be played over the loudspeakers (retry happens at the human layer instead.)
+- While a TCP connection is idle, it doesn’t use any bandwidth (TCP dynamically adapts the rate of data transfer to the available network capacity)
+  - 对于 circuit network, 即使slot unused, still allocated the same fixed amount of bandwidth
+
+determine an appropriate trade-off between failure detection delay and risk of premature timeouts
+
+更好的是 rather than using configured constant timeouts, <span style="background-color:#FFFF00">**systems can continually measure response times and their variability (jitter), and automatically adjust timeouts 更好的是自动调节timeout**</span> according to the observed response time distribution

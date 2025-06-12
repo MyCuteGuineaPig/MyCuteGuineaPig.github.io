@@ -12,7 +12,9 @@ tags:
 
 ## AMQP
 
-RabbitMQ is a implementation of **AMQP (Advanced Message Queueing Protocol)** message model 
+RabbitMQ is a implementation of **AMQP (Advanced Message Queueing Protocol)** message model. 
+
+AMQP uses a remote procedure call to allow one computer to execute programs or methods on another computer(比如broker). Two way communication (both broker and client can use rpc to run programs or call each others). 和Object-oriented programing一样，rabbitmq use commands which consists of classes and methods to communicate between clients and brokers
 
 AMQP (Advanced Message Queuing Protocol) is a standardized protocol used for asynchronous, secure, and reliable message exchange between applications. It enables systems to communicate and exchange messages in a way that's robust, interoperable, and scalable. 
 

@@ -46,6 +46,35 @@ Key aspects of AMQP:
   - **At-least-once**
   - **Exactly-once** (though this is complex and often simulated)
 
+#### AMQP Frame type 
+
+- Method Frame: has class and method
+- Content Header Frame
+- Body Frame
+- Heartbeat Frame
+
+![](/img/post/rmq/2.png)
+
+AMQP define exactly what should be contained each bytes of frame
+
+40 表示exchange class, method 10 -> 表示declare method in exchange class
+
+when sending or receiving a message through rabbitmq, the first frame always is a method frame which corresponds to sending/recieving method
+
+
+![](/img/post/rmq/3.png)
+
+The doc for the AMQP specification gives a full which id for which methods and short description which methods do
+
+| Frame	  | Frame	  |    Description  | 
+| :-------------:| :-------------:|:------|
+| **Method**	| 1	| Carries AMQP commands like queue.declare, basic.publish, basic.consume, etc. |
+| **Header** |	2 |	Carries metadata about the message body, such as content type, delivery mode, and body size. |
+| **Body** |	3	| Carries the actual message data (can be split across multiple body frames).| 
+| **Heartbeat**	| 8	| Used to keep the connection alive and detect dead peers.|
+| **Heartbeat (reserved)**	| —	| Sometimes shown separately, but technically type 8. |
+| **Frame End** |	—	 |Each frame ends with a constant byte 0xCE to mark the end of the frame. |
+
 
 ## Key Concepts
 

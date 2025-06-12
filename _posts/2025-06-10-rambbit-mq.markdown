@@ -97,6 +97,26 @@ across language
 
 it support **message acknowledgement**. When a message in a queue and goes to consumer, the message stays in the queue until the consumer lets the broker know that it has recieved the messeges. 
 
+#### Channel
+
+In RabbitMQ, a **channel** is a <span style="background-color:#FFFF00">**virtual connection inside a TCP connection**</span> (also called a connection). It is a lightweight way for clients to communicate with the broker <span style="color:purple">without opening multiple actual network connections</span>.
+
+**Why Channels Exist**
+
+Opening **a full TCP connection to RabbitMQ is expensive** (in terms of resources). So instead of creating a new connection for every producer or consumer:
+
+- <span style="background-color:#FFFF00">**A single TCP connection is opened**</span>.
+- <span style="background-color:#FFFF00">**Multiple channels are created over that connection**</span> to handle different tasks in parallel (e.g., publishing and consuming).
+
+| Property	  |    Description  | 
+| :-------------:|:------|
+| **Lightweight** |	Much less overhead than creating a new TCP connection. |
+| **Isolated** |	<span style="background-color:#FFFF00">**Errors on one channel don't affect others on the same connection.**</span> |
+| **Concurrency** |	Multiple producers/consumers can operate simultaneously via separate channels.|
+| **Scoped** |	<span style="color:purple">AMQP commands (e.g., declaring a queue, publishing) are always done over a channel</span>. |
+| **Mandatory** |	<span style="background-color:#FFFF00">**Every RabbitMQ operation (publish, consume, declare queue/exchange) must be done via a channel**</span>. |
+
+
 #### install rabbitmq 
 
 https://www.rabbitmq.com/docs/install-homebrew 

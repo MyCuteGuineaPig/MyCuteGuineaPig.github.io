@@ -164,3 +164,67 @@ or CLI tools directly:
 /opt/homebrew/sbin/rabbitmqctl shutdown
 ```
 
+
+
+## Python Implementation 
+
+producer.py
+
+```
+import pika 
+
+
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+channel = connection.channel()
+
+channel.queue_declare(queue="letterbox")
+#use default exchange 
+
+message = "Hello. this is my first message"
+
+# exchange="" means the default exchange
+channel.basic_publish(exchange="", routing_key="letterbox", body=message)
+
+print(f"Sent message: {message}")
+# Close the connection
+connection.close()  
+```
+
+consumer.py
+
+```
+import pika
+
+def on_message_recieved(ch, method, properties, body):
+    print(f"Received message: {body.decode()}")
+
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+channel = connection.channel()
+
+# Even though we declare in both producer and consumer, but rabbitMQ brokers knows decalre the queue once
+channel.queue_declare(queue="letterbox")
+#use default exchange 
+
+channel.basic_consume(queue="letterbox", on_message_callback=on_message_recieved, auto_ack=True)
+
+print("start consuming messages")
+channel.start_consuming()
+
+# Close the connection
+# connection.close()  # Not needed here as we are consuming messages indefinitely
+
+```
+
+## Web Dashboard 
+
+Go to http://localhost:15672/
+
+Enter username and password, both `guest`
+
+![](/img/post/rmq/1.png)

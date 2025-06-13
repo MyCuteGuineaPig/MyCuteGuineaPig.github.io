@@ -413,3 +413,99 @@ deliver message to multiple consumers (fan-out exchange), to <span style="backgr
 可以使用temporary queue, no need to specifically declare these queues upfront
 
 
+**producer.py**
+
+```python
+import pika 
+import time
+from pika.exchange_type import ExchangeType
+import random
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+channel = connection.channel()
+
+#channel.queue_declare(queue="letterbox")
+# producer doesn't need to declare the queue, as each consumer has dedicated queue created by itself
+#use default exchange 
+
+#declare fanout exchange
+channel.exchange_declare(exchange='pubsub', exchange_type='fanout')
+
+message = f"I want to boadcast this message"
+
+# exchange="" means the default exchange
+channel.basic_publish(exchange="pubsub", routing_key="", body=message)
+print(f"Sent message: {message}")
+connection.close()  
+```
+
+
+**firstConsumer.py**
+
+```python
+import pika
+def on_message_recieved(ch, method, properties, body):
+    print(f"first consumer Received message: {body.decode()}, ")
+
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+channel = connection.channel()
+
+channel.exchange_declare(exchange='pubsub', exchange_type='fanout')
+
+queue = channel.queue_declare(queue="", exclusive=True)  # Declare a unique queue for this consumer
+# Queue = "", server randomly choose the name of the queue
+# exclusive=True means the queue will be deleted when the consumer disconnects
+#use default exchange 
+
+channel.queue_bind(exchange='pubsub', queue=queue.method.queue)  
+# Bind the queue to the exchange, otherwise it may not receive messages
+
+channel.basic_qos(prefetch_count=1)  # Fair dispatch, process one message at a time
+
+channel.basic_consume(queue=queue.method.queue, auto_ack=True, on_message_callback=on_message_recieved)
+
+print("start consuming messages")
+channel.start_consuming()
+
+# Close the connection
+# connection.close()  # Not needed here as we are consuming messages indefinitely
+```
+
+**secondConsumer.py**
+
+```
+import pika
+
+def on_message_recieved(ch, method, properties, body):
+    print(f"second consumer Received message: {body.decode()}, ")
+
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+channel = connection.channel()
+
+channel.exchange_declare(exchange='pubsub', exchange_type='fanout')
+
+queue = channel.queue_declare(queue="", exclusive=True)  # Declare a unique queue for this consumer
+# Queue = "", server randomly choose the name of the queue
+# exclusive=True means the queue will be deleted when the consumer disconnects
+#use default exchange 
+
+channel.queue_bind(exchange='pubsub', queue=queue.method.queue)  
+# Bind the queue to the exchange, otherwise it may not receive messages
+
+channel.basic_consume(queue=queue.method.queue, auto_ack=True, on_message_callback=on_message_recieved)
+
+print("start consuming messages")
+channel.start_consuming()
+
+# Close the connection
+# connection.close()  # Not needed here as we are consuming messages indefinitely
+
+```

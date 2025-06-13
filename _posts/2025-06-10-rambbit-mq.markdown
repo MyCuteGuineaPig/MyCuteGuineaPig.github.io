@@ -164,8 +164,8 @@ brew install rabbitmq
 ```
 CONF_ENV_FILE="/opt/homebrew/etc/rabbitmq/rabbitmq-env.conf" /opt/homebrew/opt/rabbitmq/sbin/rabbitmq-server
 ```
-After starting a node, we recommend enabling all feature flags on it:
 
+After starting a node, we recommend enabling all feature flags on it:
 
 ```
 # highly recommended: enable all feature flags on the running node
@@ -184,7 +184,7 @@ brew services start rabbitmq
 
 **Stopping the Server**
 
-````
+```
 # stops the locally running RabbitMQ node
 brew services stop rabbitmq
 ```
@@ -201,7 +201,7 @@ or CLI tools directly:
 
 producer.py
 
-```
+```python
 import pika 
 
 
@@ -226,7 +226,7 @@ connection.close()
 
 consumer.py
 
-```
+```python
 import pika
 
 def on_message_recieved(ch, method, properties, body):
@@ -243,6 +243,7 @@ channel.queue_declare(queue="letterbox")
 #use default exchange 
 
 channel.basic_consume(queue="letterbox", on_message_callback=on_message_recieved, auto_ack=True)
+# when pull off from the queue, it automatically ack and no manually do that
 
 print("start consuming messages")
 channel.start_consuming()
@@ -259,3 +260,156 @@ Go to http://localhost:15672/
 Enter username and password, both `guest`
 
 ![](/img/post/rmq/1.png)
+
+
+
+## AMQP RabbitMQ
+
+![](/img/post/rmq/4.png)
+
+
+在connection 开始发送protocol header, <span style="background-color:#FFFF00">**only data not formatted**</span>. The protocol 通常是 AMQP + constant + protocol major version + protocol minor version + protocol revision. 
+
+- Then server either accept or reject protocol header. 
+  - <span style="background-color:#FFFF00">**如果是reject, write a valid protocol header to the open TCP socket, and close the socket. 如果是accept socket, it implements the protocol accordingly and responding with the connection start method frame**. </span>. 
+- 当client recieve this, client select SLA scruty and respond connection start ok method frame. 
+- Next server will send client a <span style="background-color:#FFFF00">**connection secure **</span>method，the SLA protocol by exchanging chanllenges and response until both peers have recieved sufficient information to <span style="color:purple">**authenticate**</span> each other. The connection secure method chanllenges the client to provide more information. 
+- Once authenicated on both side, server will send a <span style="background-color:#FFFF00">**connection tune**</span> method frame to the client. The connection tune method data contains various different pieces of information around sever connections. <span style="background-color:#FFFF00">**比如maximum channel supported, the max frame size supported, and the desired heartbeat delay**</span>
+  - client respond a connection tune ok method frame 包括了details around negotiated max number of channels, maximum frames and heartbeat delay. 
+- Final is to open connection itself by sending the server connection open method frame. Then server responds with a connection openok method frame which signals to the client that the connection is ready for use. Can see connection negotiation and opening process. <span style="background-color:#FFFF00">The communication between the client and broker is mostly sync</span>. This is different than consuming messages from the broker.
+
+
+![](/img/post/rmq/5.png)
+
+
+Once open a connection to broker or the server, may perform different actions 比如creating exchanges or queues or binding queues to exchanges. This is done by various different method frames from client to server. 如果queue was declared and created successfully, the server will respond with a `q.declare` ok method frame. 如果有error when create queue, rabbitmq will close the channel that rpc request was issued on. 
+
+
+![](/img/post/rmq/6.png)
+
+send basic publish frame then send content header frame (包括details 比如size of messages). Finally send one or more body frames, which makes the actual content of message. <span style="background-color:#FFFF00">**The number of body frames required depends on both size of message and maximum size supported by the connection by RabbitMQ**</span>.
+
+
+**Recieving messages**: two main approaches
+
+![](/img/post/rmq/7.png)
+
+- <span style="background-color:#FFFF00">**basic get method**</span>: provide direct access to the messages in a queue sync. 
+  - server respond `Get-Empty` (如果没有) or `Get-Ok` method
+  - followed by the message which contain a **content header frame** and a number of **body frame** depending on the size of messages.
+  - client then respond with a basic_ack the receipt of the message (除非设置不需要ack)
+  - <span style="color:red">**not ideal for rabbitmq recieving messages**</span>. We should consume them not getting them
+
+![](/img/post/rmq/8.png)
+
+- <span style="background-color:#FFFF00">**basic consume method**</span>: start to ask consumer which is a transient request for messages from a specific queue. Consumer last as long as the channel declared on or client cancel them 
+  - broker respond Basic `consume-ok` basic frame. 当messages arrive for that consumer, consumer send a basic deliver to the client. Followed by a header frame and a number of body frames
+  - client should ack messages recieved (除非no ack required)
+  - <span style="background-color:#FFFF00">**this continue until channel close or client cancel consume**</span>
+
+
+## Competing Consumers
+
+![](/img/post/rmq/9.png)
+
+what if consumer processing speed < producer write speed. More message fill up in the queue and cause trouble on broker as each message in the queue will take up a bit memory on sever. By default, rmq use round robin manner. 
+
+This gives some benefits in terms of <span style="background-color:#FFFF00">**scability and reliable**</span>.
+
+![](/img/post/rmq/10.png)
+
+比如其中一个node goes down, no longer process messages, still have other consumers
+
+
+
+producer.py
+
+```python
+import pika 
+import time
+import random
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+channel = connection.channel()
+
+channel.queue_declare(queue="letterbox")
+#use default exchange 
+
+messageID = 1
+
+while True:
+    message = f"Sending Message {messageID}"
+
+    # exchange="" means the default exchange
+    channel.basic_publish(exchange="", routing_key="letterbox", body=message)
+    print(f"Sent message: {message}")
+
+    time.sleep(random.randint(1, 4))  # Simulate processing time
+
+    messageID += 1  # Increment message ID
+```
+
+consumer.py
+
+```python
+import pika
+import time 
+import random 
+
+def on_message_recieved(ch, method, properties, body):
+    processing_time = random.randint(1, 6)
+    print(f"Received message: {body.decode()}, will take {processing_time} seconds to process")
+
+    time.sleep(processing_time)  # Simulate processing time
+    ch.basic_ack(delivery_tag=method.delivery_tag)  # Acknowledge the message
+    print('Finish processing message')
+
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+channel = connection.channel()
+
+# Even though we declare in both producer and consumer, but rabbitMQ brokers knows decalre the queue once
+channel.queue_declare(queue="letterbox")
+#use default exchange 
+
+channel.basic_qos(prefetch_count=1)  # Fair dispatch, process one message at a time, 
+# 如果移走这个，remove fair dispatch mechanism (有的queue没有完成，还在继续assign给它 =》 use roundbin 不efficient)
+
+channel.basic_consume(queue="letterbox", on_message_callback=on_message_recieved)
+
+print("start consuming messages")
+channel.start_consuming()
+
+# Close the connection
+# connection.close()  # Not needed here as we are consuming messages indefinitely
+
+```
+
+![](/img/post/rmq/11.png)
+
+如果开一个producer 和 一个consumer, 可以看见queue increase
+
+![](/img/post/rmq/12.png)
+
+**purge queue**: click the name of queue (比如letterbox), click purge messages
+
+开多个consumer, 开几个terminal tab同时run
+
+
+## Pub/Sub
+
+deliver message to multiple consumers (fan-out exchange), to <span style="background-color:#FFFF00">**multiple different queue (Memory used by rabbitmq doesn't store multiple copies of messages, just store once, and each queue store a reference to that message)**</span>
+
+<span style="background-color:#FFFF00">**Completely decoupling our producer from our downstream service.**</span> Producer doesn't care if 0 services are consuming messages or if hundreds of services consuming messages. It will continue to publish them and the fan-out exchange will take care who is interested in
+
+![](/img/post/rmq/13.png)
+
+<span style="background-color:#FFFF00">**bind each queues to the exchange**</span>. The fanout exchange use these bindings to know what queues are interested in message in question. 上图是3 queue, 3 bindings => each messages will send to each queue
+
+可以使用temporary queue, no need to specifically declare these queues upfront
+
+

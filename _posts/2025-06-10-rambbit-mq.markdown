@@ -210,6 +210,7 @@ connection_parameters = pika.ConnectionParameters("localhost")
 connection = pika.BlockingConnection(connection_parameters)
 #don't directly interact with the connection, use a channel instead
 
+
 channel = connection.channel()
 
 channel.queue_declare(queue="letterbox")
@@ -218,6 +219,7 @@ channel.queue_declare(queue="letterbox")
 message = "Hello. this is my first message"
 
 # exchange="" means the default exchange
+
 
 channel.basic_publish(exchange="", routing_key="letterbox", body=message)
 

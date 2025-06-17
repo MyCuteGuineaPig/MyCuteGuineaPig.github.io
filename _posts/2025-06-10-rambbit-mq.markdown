@@ -719,3 +719,16 @@ channel.basic_consume(queue=queue.method.queue,
 print("User Start Consuming")
 channel.start_consuming()
 ```
+
+
+## Request Reply Pattern
+
+![](/img/post/rmq/16.png)
+
+如果both service both consuming and publishing request, 不叫producer or consumer. First thing client do, declare the queue that wants to receive replies for requests on. The client will process all the messages sent to this queue from the server as a response to a previously sent request.  Then publish the request onto an exchange (可以是各种). Exchange put requst on **request queue**. Server read requests from request queue and process them. Once finish process, send reply back to the client. Does this by publishing onto the reply queue using default exchange. 
+
+**How does server which reply queue to send to from server**. It is needed to specify by the client (<span style="background-color:#FFFF00">**by `reply_to` property**</span>)
+
+如果有多个request, send to 多个reply queue, **How does client know which reply is for which request**. Can tag some **metadata on the request** which uniquely identified the request. Then server can tag this metadata also on the reply so the client so the client can coordiante which reply for which request (<span style="background-color:#FFFF00">**`correlation_id` property often used**</span> )
+
+Often we have unique message id per message. So client send a message to the exchange with a unique message id. 当server收到，population `correlation_id` using `message_id` => allow client to uniquely identify which reply is for which request. Alternative approach is just to use the same `correlation_id` got from request 

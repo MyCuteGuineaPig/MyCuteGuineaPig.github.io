@@ -338,6 +338,7 @@ connection_parameters = pika.ConnectionParameters("localhost")
 
 connection = pika.BlockingConnection(connection_parameters)
 #don't directly interact with the connection, use a channel instead
+
 channel = connection.channel()
 
 channel.queue_declare(queue="letterbox")
@@ -349,6 +350,7 @@ while True:
     message = f"Sending Message {messageID}"
 
     # exchange="" means the default exchange
+
     channel.basic_publish(exchange="", routing_key="letterbox", body=message)
     print(f"Sent message: {message}")
 
@@ -369,16 +371,20 @@ def on_message_recieved(ch, method, properties, body):
     print(f"Received message: {body.decode()}, will take {processing_time} seconds to process")
 
     time.sleep(processing_time)  # Simulate processing time
+
     ch.basic_ack(delivery_tag=method.delivery_tag)  # Acknowledge the message
+
     print('Finish processing message')
 
 connection_parameters = pika.ConnectionParameters("localhost")
 
 connection = pika.BlockingConnection(connection_parameters)
 #don't directly interact with the connection, use a channel instead
+
 channel = connection.channel()
 
 # Even though we declare in both producer and consumer, but rabbitMQ brokers knows decalre the queue once
+
 channel.queue_declare(queue="letterbox")
 #use default exchange 
 
@@ -431,6 +437,7 @@ connection_parameters = pika.ConnectionParameters("localhost")
 
 connection = pika.BlockingConnection(connection_parameters)
 #don't directly interact with the connection, use a channel instead
+
 channel = connection.channel()
 
 #channel.queue_declare(queue="letterbox")

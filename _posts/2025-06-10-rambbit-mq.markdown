@@ -209,6 +209,7 @@ connection_parameters = pika.ConnectionParameters("localhost")
 
 connection = pika.BlockingConnection(connection_parameters)
 #don't directly interact with the connection, use a channel instead
+
 channel = connection.channel()
 
 channel.queue_declare(queue="letterbox")
@@ -217,6 +218,7 @@ channel.queue_declare(queue="letterbox")
 message = "Hello. this is my first message"
 
 # exchange="" means the default exchange
+
 channel.basic_publish(exchange="", routing_key="letterbox", body=message)
 
 print(f"Sent message: {message}")
@@ -236,9 +238,11 @@ connection_parameters = pika.ConnectionParameters("localhost")
 
 connection = pika.BlockingConnection(connection_parameters)
 #don't directly interact with the connection, use a channel instead
+
 channel = connection.channel()
 
 # Even though we declare in both producer and consumer, but rabbitMQ brokers knows decalre the queue once
+
 channel.queue_declare(queue="letterbox")
 #use default exchange 
 
@@ -377,6 +381,7 @@ channel.queue_declare(queue="letterbox")
 #use default exchange 
 
 channel.basic_qos(prefetch_count=1)  # Fair dispatch, process one message at a time, 
+
 # 如果移走这个，remove fair dispatch mechanism (有的queue没有完成，还在继续assign给它 =》 use roundbin 不efficient)
 
 channel.basic_consume(queue="letterbox", on_message_callback=on_message_recieved)
@@ -431,11 +436,13 @@ channel = connection.channel()
 #use default exchange 
 
 #declare fanout exchange
+
 channel.exchange_declare(exchange='pubsub', exchange_type='fanout')
 
 message = f"I want to boadcast this message"
 
 # exchange="" means the default exchange
+
 channel.basic_publish(exchange="pubsub", routing_key="", body=message)
 print(f"Sent message: {message}")
 connection.close()  
@@ -453,14 +460,17 @@ connection_parameters = pika.ConnectionParameters("localhost")
 
 connection = pika.BlockingConnection(connection_parameters)
 #don't directly interact with the connection, use a channel instead
+
 channel = connection.channel()
 
 channel.exchange_declare(exchange='pubsub', exchange_type='fanout')
 
 queue = channel.queue_declare(queue="", exclusive=True)  # Declare a unique queue for this consumer
 # Queue = "", server randomly choose the name of the queue
+
 # exclusive=True means the queue will be deleted when the consumer disconnects
-#use default exchange 
+
+# use default exchange 
 
 channel.queue_bind(exchange='pubsub', queue=queue.method.queue)  
 # Bind the queue to the exchange, otherwise it may not receive messages
@@ -478,7 +488,7 @@ channel.start_consuming()
 
 **secondConsumer.py**
 
-```
+```python
 import pika
 
 def on_message_recieved(ch, method, properties, body):
@@ -488,13 +498,17 @@ connection_parameters = pika.ConnectionParameters("localhost")
 
 connection = pika.BlockingConnection(connection_parameters)
 #don't directly interact with the connection, use a channel instead
+
 channel = connection.channel()
 
 channel.exchange_declare(exchange='pubsub', exchange_type='fanout')
 
 queue = channel.queue_declare(queue="", exclusive=True)  # Declare a unique queue for this consumer
+
 # Queue = "", server randomly choose the name of the queue
+
 # exclusive=True means the queue will be deleted when the consumer disconnects
+
 #use default exchange 
 
 channel.queue_bind(exchange='pubsub', queue=queue.method.queue)  
@@ -509,3 +523,25 @@ channel.start_consuming()
 # connection.close()  # Not needed here as we are consuming messages indefinitely
 
 ```
+
+
+
+## Routing 
+
+
+![](/img/post/rmq/14.png)
+
+- Direct Exchange: use binding keys and routing keys to route the message
+  - 比如publish a message to direct exchange, message routing key 必须和binding key 一样才可以
+  - <span style="background-color:#FFFF00">**多个queue 可以bound to the direct exchange using the same binding key**</span>
+  - <span style="background-color:#FFFF00">**A single queue 可以有多个bindings**</span> (比如上图中间的example, 两个binding keys) => <span style="background-color:#FFFF00">**Give great flexibility how to route the messages**</span>
+
+
+![](/img/post/rmq/15.png)
+
+- **Topic exchange**: 不能有arbitrary routing keys, it must be a list of words delimited by dots. 
+  - 也需要binding keys, pass by routing keys
+  - `*` 表示 exactly one word, or `#` 表示zero or more words
+    - 比如 `user.europe.*` 表示`user.europe` 开始加上任何一个词, 比如 `user.europe.payment`
+    - `user.#` 可以是以`user`开始的任何词, 可以是user, 可以是`user.eruope`, 也可以是`user.europe.payment`
+  - **Achieve interesting flexibility**

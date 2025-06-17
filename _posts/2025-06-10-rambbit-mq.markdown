@@ -554,3 +554,168 @@ channel.start_consuming()
     - 比如 `user.europe.*` 表示`user.europe` 开始加上任何一个词, 比如 `user.europe.payment`
     - `user.#` 可以是以`user`开始的任何词, 可以是user, 可以是`user.eruope`, 也可以是`user.europe.payment`
   - **Achieve interesting flexibility**
+
+
+#### Direct Exchange
+
+**producer.py**
+
+```python
+import pika 
+
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+
+channel = connection.channel()
+
+# producer doesn't need to declare the queue, as each consumer has dedicated queue created by itself
+#use default exchange 
+
+#declare  exchange
+
+channel.exchange_declare(exchange='routing', exchange_type='direct')
+
+message = f"This analytics message needs to be routed"
+
+# exchange="" means the default exchange
+
+channel.basic_publish(exchange="routing", routing_key="analytics", body=message)
+print(f"Sent message: {message}")
+
+message = f"This message needs to be routed"
+
+# exchange="" means the default exchange
+
+channel.basic_publish(exchange="routing", routing_key="both", body=message)
+print(f"Sent message: {message}")
+
+connection.close()  
+```
+
+**analyticConsumer.py**
+
+```python 
+import pika 
+
+def on_message_received(ch, method, properties, body):
+    print(f"analytics consumer Received message: {body.decode()}")
+
+connection_parameters = pika.ConnectionParameters("localhost")
+connection = pika.BlockingConnection(connection_parameters)
+channel = connection.channel()
+channel.exchange_declare(exchange='routing', exchange_type='direct')
+
+queue = channel.queue_declare(queue="", exclusive=True)
+
+channel.queue_bind(exchange='routing', queue=queue.method.queue, routing_key='analytics')
+channel.queue_bind(exchange='routing', queue=queue.method.queue, routing_key='both')
+
+channel.basic_consume(queue=queue.method.queue, 
+                      auto_ack=True, on_message_callback=on_message_received)
+
+print("Analytics Start Consuming")
+channel.start_consuming()
+```
+
+
+**paymentConsumer.py**
+
+
+```python
+import pika
+
+def on_message_recieved(ch, method, properties, body):
+    print(f"payments consumer Received message: {body.decode()}")
+
+connection_parameters = pika.ConnectionParameters("localhost")
+connection = pika.BlockingConnection(connection_parameters)
+
+channel = connection.channel()
+
+channel.exchange_declare(exchange='routing', exchange_type='direct')
+# 不一定非要是routing, 可以是别的名字，routing命名只是说我们定义一个routing 
+
+queue = channel.queue_declare(queue="", exclusive=True) 
+# queue="" allow server to assign random queue to it
+
+# exclusive=True means the queue will be deleted when the consumer disconnects
+
+channel.queue_bind(exchange='routing', queue=queue.method.queue, routing_key='paymentsonly')
+channel.queue_bind(exchange='routing', queue=queue.method.queue, routing_key='both')
+channel.basic_consume(queue=queue.method.queue, auto_ack=True,
+                       on_message_callback=on_message_recieved)
+
+print("start consuming")
+
+channel.start_consuming()
+```
+
+
+#### Topic Exchange
+
+**producer.py**
+
+```python
+import pika 
+
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+
+channel = connection.channel()
+
+# producer doesn't need to declare the queue, as each consumer has dedicated queue created by itself
+
+#use default exchange 
+
+#declare  exchange
+
+channel.exchange_declare(exchange='mytopicexchange', exchange_type='topic')
+
+message = f"This analytics message needs to be routed"
+
+# exchange="" means the default exchange
+
+channel.basic_publish(exchange="mytopicexchange", routing_key="user.analytics", body=message)
+print(f"Sent message: {message}")
+
+message = f"This message needs to be routed"
+
+# exchange="" means the default exchange
+
+channel.basic_publish(exchange="mytopicexchange", routing_key="user.user.end", body=message)
+print(f"Sent message: {message}")
+
+connection.close()  
+```
+
+**userConsumer.py**
+
+```python
+
+import pika 
+
+def on_message_received(ch, method, properties, body):
+    print(f"user consumer Received message: {body.decode()}")
+
+connection_parameters = pika.ConnectionParameters("localhost")
+connection = pika.BlockingConnection(connection_parameters)
+channel = connection.channel()
+
+# use topic exchange
+
+channel.exchange_declare(exchange='mytopicexchange', exchange_type='topic')
+
+queue = channel.queue_declare(queue="", exclusive=True)
+
+channel.queue_bind(exchange='mytopicexchange', queue=queue.method.queue, routing_key='user.#')
+
+channel.basic_consume(queue=queue.method.queue, 
+                      auto_ack=True, on_message_callback=on_message_received)
+
+print("User Start Consuming")
+channel.start_consuming()
+```

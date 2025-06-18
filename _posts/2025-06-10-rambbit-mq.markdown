@@ -797,3 +797,37 @@ channel.basic_consume(queue='request-queue', auto_ack=True,
 print("Start Server")
 channel.start_consuming()
 ```
+
+## Exchange 
+
+#### Exchange to Exchange 
+
+![](/img/post/rmq/17.png)
+
+Direct Exchange first route based on routing key. Then use fanout exchange to route the message 
+
+#### Header Exchange
+
+![](/img/post/rmq/18.png)
+
+<span style="background-color:#FFFF00">**use header table to decide how to route message**</span> instead of routing key
+
+`x-match: any`: tells the header exchange that in order for a message to be routed from headers exchange to the queue connected to service a. <span style="background-color:#FFFF00">**One of the headers on the header**</span> either `name: Brian` or `age:47` <span style="background-color:#FFFF00">**matches**</span>, the message will be routed successfully to the queue connected to the service a.
+
+另一个是 `x-match: all`. 必须所有的header都match了才能是真的match. 只要要求的所有header 都match即可，如果message has more header, 也没有问题。
+
+#### Consistent Hashing Exchange
+
+
+![](/img/post/rmq/19.png)
+
+
+equally distribute service. Consistent hashing exchange, <span style="background-color:#FFFF00">**a simple numeric value 决定what proporiting of messages should be sent to the queue from the hashing exchange**</span>
+
+- 比如 所有的`routing_key=1` tell consistent hashing exchange to treat all queues equal
+- 如果 有一个queue的`routing_key=2` 其他的queue 都是`routing_key=1`，tell this queue to recieve twice the messages as usual. 
+  - Essential doing is doubling the hash space that is allocated to the queue to service b than service a 和 c
+- when a message comes in, <span style="background-color:#FFFF00">**set it routing key, then the routing key hashed by the consistent hashing exchange**</span>. The hash is then <span style="background-color:#FFFF00">**assigned to one or more queues based on where it falls in to the hash space**</span>
+- if we send another message with the routing key as before => that message 一定会被routed 到之前的queue
+  - <span style="background-color:#FFFF00">**如果改变routing key, 可能会被发到完全不同的queue**</span>
+  - <span style="background-color:#FFFF00">**如果add additional queue，need to be careful, 可能会screw hash space**</span> 

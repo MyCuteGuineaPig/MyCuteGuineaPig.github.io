@@ -974,3 +974,89 @@ equally distribute service. Consistent hashing exchange, <span style="background
 - if we send another message with the routing key as before => that message 一定会被routed 到之前的queue
   - <span style="background-color:#FFFF00">**如果改变routing key, 可能会被发到完全不同的queue**</span>
   - <span style="background-color:#FFFF00">**如果add additional queue，need to be careful, 可能会screw hash space**</span> 
+
+
+## Publish Option
+
+![](/img/post/rmq/26.png)
+
+RMQ gives a custom header datat structure where w ecan add user defined key value pairs
+
+- `ContentType`: allow consumer to determinte the type without examining message body
+- `ContentEncoding`: tell consumer what encoding standard the message is using
+- `userID`: 如果不是the same userID as logged in user, RMQ will reject message. 
+- `DeliveryMode`: 
+  - 1: message should be persisted to disk before sent to consumers. <span style="background-color:#FFFF00">**Can improve reliability published messages won't lost before consume. It also leads latency and consume hardware resource**</span>
+  - 0: doesn't need to be persisted to disk
+- `Expiration`: <span style="background-color:#FFFF00">**告诉RMQ to discard if not consumed after a certain period**</span>. use it to free up memory in system as out of date or irrelevant messages
+
+![](/img/post/rmq/27.png)
+
+- The fastest but least: not guarantee delivery. no confirmation that message has been successfully or unsuccessfully routed to consumer
+- 第二快的, <span style="background-color:#FFFF00">**mandatory flag**</span>: only notify us if a message failed to be routed (只有failed to route会被 notify)
+- 第三快, <span style="background-color:#FFFF00">**publisher confirms**</span> (set at channel level). All message sent on a channel when this is enabled will be published using this setting => <span style="color:purple">force RMQ respond with an ack that the message was successfully published (on all queues it published or successfully persist)</span>.<span style="background-color:#FFFF00">**No guarantee of when it will be consumed**</span>
+- <span style="background-color:#FFFF00">**Transactions**</span>: gives a guarantee that a batch of messages have been committed to a queue or else rolled back
+  - <span style="color:purple">**如果affect more than 1 queues, won't be atomic => all messages published or none of published**</span>
+  - 因为decouple nature, publisher 不知道多少consumer, **transaction often used with caution**
+- <span style="background-color:#FFFF00">**slow speed best relability: persist messages by sending delivery mode as 1**</span>
+  - <span style="background-color:#FFFF00">**queue durable: the queue existence will survive a reboot of the message broker**</span>, <span style="background-color:#FFFF00">**如果把queue durable 和 persistent message 一起用, 最高的reliability at a sacrifice of significant speeds (必须用SSD 才可以)**</span>
+
+
+use it in **producer.py**
+
+```python
+import pika 
+
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+
+channel = connection.channel()
+#Enable Publish confirms 
+
+channel.confirm_delivery()
+
+#Enable Transactions
+
+#channel.tx_select()
+
+channel.exchange_declare(exchange='headerexchange', exchange_type='headers')
+# Creates a durable queue that survives server restarts
+
+channel.queue_declare(queue='letterbox', durable=True)
+
+message = "This message go through header exchanges"
+channel.basic_publish(
+    exchange='headerexchange', 
+    routing_key='', 
+    body=message,
+    properties=pika.BasicProperties(
+        #headers={'x-match': 'all', 'type': 'text', 'format': 'plain'}
+
+        headers={'name': 'brian'},
+        # deliverymode
+
+        delivery_mode=1,
+        #expiration time 
+
+        expiration=17889890,
+        content_type='application/json',
+    ),
+    # Set the publish to mandatory - i.e. receive a notification of failure
+
+    mandatory=True,
+)
+
+# Commit a transaction 
+
+channel.tx_commit()
+# Uncomment the line below to rollback a transaction
+
+channel.tx_rollback()
+
+#declare  exchange
+print(f"sent message: {message}")
+
+connection.close()  
+```

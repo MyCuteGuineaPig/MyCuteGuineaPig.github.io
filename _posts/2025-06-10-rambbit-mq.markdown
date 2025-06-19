@@ -328,7 +328,7 @@ This gives some benefits in terms of <span style="background-color:#FFFF00">**sc
 
 
 
-producer.py
+**producer.py**: use default exchange, no need to declare exchange
 
 ```python
 import pika 
@@ -447,6 +447,7 @@ channel = connection.channel()
 #declare fanout exchange
 
 channel.exchange_declare(exchange='pubsub', exchange_type='fanout')
+# exchange = '' 是给一个命名，不是种类，也可以命名pubsub123
 
 message = f"I want to boadcast this message"
 
@@ -576,6 +577,7 @@ channel = connection.channel()
 #declare  exchange
 
 channel.exchange_declare(exchange='routing', exchange_type='direct')
+# exchange = '' 是给一个命名，不是种类，也可以命名routing123
 
 message = f"This analytics message needs to be routed"
 
@@ -798,6 +800,8 @@ print("Start Server")
 channel.start_consuming()
 ```
 
+![](/img/post/rmq/20.png)
+
 ## Exchange 
 
 #### Exchange to Exchange 
@@ -805,6 +809,73 @@ channel.start_consuming()
 ![](/img/post/rmq/17.png)
 
 Direct Exchange first route based on routing key. Then use fanout exchange to route the message 
+
+
+**consumer.py**
+
+```python
+import pika 
+
+def on_message_recieved(ch, method, properties, body):
+    print(f"Received message: {body.decode()}, ")
+
+
+connection_parameter= pika.ConnectionParameters("localhost")
+connection = pika.BlockingConnection(connection_parameter)
+channel = connection.channel()
+
+channel.exchange_declare(exchange='secondexchange', exchange_type='fanout')
+channel.queue_declare(queue='letterbox')
+
+channel.queue_bind(exchange='secondexchange', queue='letterbox')
+channel.basic_consume(queue='letterbox', 
+                      auto_ack=True, 
+                      on_message_callback=on_message_recieved)
+
+print("Start consuming")
+channel.start_consuming()
+```
+
+
+**producer.py**
+
+```python
+import pika 
+
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+
+channel = connection.channel()
+
+channel.exchange_declare(exchange='firstexchange', exchange_type='direct')
+channel.exchange_declare(exchange='secondexchange', exchange_type='fanout')
+channel.exchange_bind('secondexchange', source='firstexchange')
+
+message = "This message go through multiple exchanges"
+channel.basic_publish(exchange='firstexchange', routing_key='', body=message)
+
+# producer doesn't need to declare the queue, as each consumer has dedicated queue created by itself
+#use default exchange 
+
+#declare  exchange
+print(f"sent message: {message}")
+
+connection.close()  
+```
+
+![](/img/post/rmq/21.png)
+
+
+![](/img/post/rmq/22.png)
+
+first exchange binds to the second exchange
+
+![](/img/post/rmq/23.png)
+
+second exchange binds to the letterbox queue
+
 
 #### Header Exchange
 
@@ -815,6 +886,78 @@ Direct Exchange first route based on routing key. Then use fanout exchange to ro
 `x-match: any`: tells the header exchange that in order for a message to be routed from headers exchange to the queue connected to service a. <span style="background-color:#FFFF00">**One of the headers on the header**</span> either `name: Brian` or `age:47` <span style="background-color:#FFFF00">**matches**</span>, the message will be routed successfully to the queue connected to the service a.
 
 另一个是 `x-match: all`. 必须所有的header都match了才能是真的match. 只要要求的所有header 都match即可，如果message has more header, 也没有问题。
+
+**consumer.py**
+
+```python
+import pika 
+
+def on_message_recieved(ch, method, properties, body):
+    print(f"Received message: {body.decode()}, ")
+
+
+connection_parameter= pika.ConnectionParameters("localhost")
+connection = pika.BlockingConnection(connection_parameter)
+channel = connection.channel()
+
+channel.exchange_declare(exchange='headerexchange', exchange_type='headers')
+channel.queue_declare(queue='letterbox')
+
+bind_args = {
+    'x-match': 'all',  # Match any headers
+
+    'name': 'brian',
+    'age': 53,
+}
+
+channel.queue_bind(exchange='headerexchange', queue='letterbox', arguments=bind_args)
+
+channel.basic_consume(queue='letterbox', 
+                      auto_ack=True, 
+                      on_message_callback=on_message_recieved)
+
+print("Start consuming")
+channel.start_consuming()
+```
+
+**producer.py**
+
+```python
+import pika 
+
+connection_parameters = pika.ConnectionParameters("localhost")
+
+connection = pika.BlockingConnection(connection_parameters)
+#don't directly interact with the connection, use a channel instead
+
+channel = connection.channel()
+
+channel.exchange_declare(exchange='headerexchange', exchange_type='headers')
+
+message = "This message go through header exchanges"
+channel.basic_publish(
+    exchange='headerexchange', 
+    routing_key='', 
+    body=message,
+    properties=pika.BasicProperties(
+        #headers={'x-match': 'all', 'type': 'text', 'format': 'plain'}
+
+        headers={'name': 'brian'}
+    ),
+)
+
+# producer doesn't need to declare the queue, as each consumer has dedicated queue created by itself
+#use default exchange 
+
+#declare  exchange
+print(f"sent message: {message}")
+
+connection.close()  
+```
+
+![](/img/post/rmq/24.png)
+
+![](/img/post/rmq/25.png)
 
 #### Consistent Hashing Exchange
 

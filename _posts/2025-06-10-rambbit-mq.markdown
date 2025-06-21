@@ -1060,3 +1060,24 @@ print(f"sent message: {message}")
 
 connection.close()  
 ```
+
+#### Alternate Exchange 
+
+![](/img/post/rmq/28.png)
+
+<span style="background-color:#FFFF00">**Alternate Exchange**</span> are an extension to the AMQP model created by rabbitmq to handle unrouted messages. 包括了 specifying an already existing exchange that new exchange route message to if currently they are not routed 
+
+比如 binding 是test. 如果publish a message from producer to main with key sample. Main exchange 不能route this message to any queues => <span style="color:purple">**unroutable message route to alternate exchange**</span>. Alternate exchange is same as any other exchange in rabbitmq. 可以是任何exchange type 比如direct, fanout, topc etc. 最常见的是**fanout exchange**.
+
+
+比如route unrouted message to a logging service to alert 
+
+#### Dead Letter Exchange 
+
+When we declare a queue, we can declare that queue has an associated dead letter exchange. <span style="background-color:#FFFF00">**Any message that is route to that queue but cannot be delivered to a consumer or expires for some reason can be sent to the dead letter exchange (有message 不能deliver to consumer 或者expire 可以发到dead letter exchange)**</span>
+
+![](/img/post/rmq/29.png)
+
+A common usage is to logging service to alert us to make developers aware that messages are being rejected from a queue or not being delivered to consumers. 
+
+Difference between alternate exchange 和 dead letter exchange 是 <span style="background-color:#FFFF00">**expired or rejected messages are delivered to dead letter exchange**</span>. <span style="background-color:#FFFF00">**Unrouted message route to alternate exchange**</span>

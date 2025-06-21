@@ -1081,3 +1081,35 @@ When we declare a queue, we can declare that queue has an associated dead letter
 A common usage is to logging service to alert us to make developers aware that messages are being rejected from a queue or not being delivered to consumers. 
 
 Difference between alternate exchange 和 dead letter exchange 是 <span style="background-color:#FFFF00">**expired or rejected messages are delivered to dead letter exchange**</span>. <span style="background-color:#FFFF00">**Unrouted message route to alternate exchange**</span>
+
+
+#### Message Acks
+
+![](/img/post/rmq/30.png)
+
+
+- `basic_ack`: when finish consume a message, need to send an ack to the broker that we finish consuming the message, can use `basic_ack`
+  - `delivery_tag`: 是parameter of `basic_ack`: is an auto-incrementing number for that particular consumer that indicates what message it has now received. 第一个message 是tag 0, 之后1,2,3.。。
+  - <span style="background-color:#FFFF00">**need to send the same channel that message received**</span>
+  - `multiple`: boolean. <span style="color:purple">**allow to ack multiple messages at once**</span>. 比如收到5个message, none ack, 当ack 第5个message and set multiple flag set to true, that means we ack all messages up to and including 5
+- `basic_reject`: very similar to `basic_ack` except instead of telling rabbitmq we successfully process the message, it's <span style="color:red">**telling rabbitmq that haven't successfully process messages or cannot process it**</span>
+  - `delivery_tag`: 是parameter of `basic_reject`: tell which messages rejecting
+  - `requeue`: boolean 尽管reject message, but we want it to be requeued onto the queue it came from。 <span style="background-color:#FFFF00">**如果只有一个consumer for that queue => lead a loop, messages rejected and requeue multiple times. 如果有多个consumer, rabbitmq make an effort to deliver to different consumer**</span>
+  - 没有`multiple` 只能single reject
+- `basic_nack`: has option to `requeue` and `multiple`. <span style="background-color:#FFFF00">**allow to reject multiple messages at once and allow ack multiple messages at once**</span>
+
+#### Queue Options
+
+![](/img/post/rmq/31.png)
+
+- `auto delete`: automatically delete queue if not needed. <span style="background-color:#FFFF00">**A queue is deleted only if no consumering consume from**</span> (also known for temporary queue, 通用于chat application or applications that us ea request reply pattern)
+- `auto expire`: only delete queue after certain amount of time if queue not used
+  - set `x-expire` argument to tell how long for timeout
+- `auto expire msg`: prevent messages from hanging around too long on a queue if they haven't been consumed. <span style="background-color:#FFFF00">如果有 dead letter exchange, message on the queue expires then it will sent to the dead letter exchange</span>. 
+  - set `x-message-ttl`: how long message message survive on the queue
+- `max length queue`: limit the number of messages on a queue at any one time. Allow us to create queues that have a known max length. <span style="background-color:#FFFF00">**如果有more messages published to the queue, drop message at the front the queue. These removed message can be dead letters**</span>
+  - `x-max-length` 最多 多少个messages allowed on queue
+- `exclusive`: only allow one consumer at a time
+  - `flag`: set by a flag when creating the queue
+- `durable`: a queue persist across server restart
+  - important flag to make rabbitmq reliable 
